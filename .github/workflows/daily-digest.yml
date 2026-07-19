@@ -1,0 +1,28 @@
+name: Daily Telegram Digest
+
+on:
+  schedule:
+    # cron 使用 UTC 時間。'0 1 * * *' = 每天 01:00 UTC = 台灣 09:00。
+    # 想改時間：把小時數換成「你要的台灣時間 − 8」。例如台灣 18:00 → 10 → '0 10 * * *'。
+    - cron: '0 1 * * *'
+  workflow_dispatch:   # 允許在 Actions 頁面手動按鈕觸發（用來測試）
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Send digest
+        env:
+          JSONBIN_BIN_ID: ${{ secrets.JSONBIN_BIN_ID }}
+          JSONBIN_KEY: ${{ secrets.JSONBIN_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node send-digest.js
