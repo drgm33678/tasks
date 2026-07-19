@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求追蹤 · Requirement Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EFE9DD; --paper-2:#F7F3EB; --paper-3:#FBF9F3;
+    --ink:#23201B; --ink-soft:#6C6558; --ink-faint:#9A9284;
+    --line:#DAD2C2; --line-soft:#E7E0D1;
+    --pine:#35674A; --pine-deep:#2A5139;
+    --gold:#A8842E; --brick:#B4442E; --blue:#3E6E9E; --teal:#2E8B84; --grey:#8B8578;
+    --shadow:0 1px 0 rgba(35,32,27,.03), 0 10px 34px -20px rgba(35,32,27,.30);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Inter',system-ui,-apple-system,'Noto Sans TC',sans-serif;
+    background:radial-gradient(130% 80% at 50% -12%, #F4EFE4 0%, var(--paper) 55%) fixed;
+    color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.5;
+    padding:22px 18px 90px;
+  }
+  .wrap{max-width:860px;margin:0 auto}
+  a{color:var(--pine);text-decoration:none} a:hover{text-decoration:underline}
+
+  /* cloud banner */
+  .cloudbar{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:11px;margin-bottom:16px;font-size:13px;border:1px solid;transition:.2s}
+  .cloudbar .cdot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .cloudbar.off{background:rgba(180,68,46,.06);border-color:rgba(180,68,46,.25);color:var(--brick)}
+  .cloudbar.off .cdot{background:var(--brick)}
+  .cloudbar.on{background:rgba(53,103,74,.07);border-color:rgba(53,103,74,.25);color:var(--pine-deep)}
+  .cloudbar.on .cdot{background:var(--pine)}
+  .cloudbar.sync{background:rgba(62,110,158,.07);border-color:rgba(62,110,158,.25);color:var(--blue)}
+  .cloudbar.sync .cdot{background:var(--blue);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  .cloudbar .cb-act{margin-left:auto;display:flex;gap:8px}
+  .link-btn{background:none;border:none;font-family:inherit;font-size:12.5px;color:inherit;cursor:pointer;text-decoration:underline;opacity:.85}
+  .link-btn:hover{opacity:1}
+
+  .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+  .brand h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:30px;letter-spacing:-.02em;line-height:1}
+  .brand .sub{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-top:7px}
+  .brand .sub b{color:var(--pine);font-weight:700}
+  .top-actions{display:flex;gap:8px}
+
+  .pipeline{display:flex;gap:8px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px;box-shadow:var(--shadow);margin-bottom:14px;flex-wrap:wrap}
+  .pchip{flex:1;min-width:96px;border:1px solid transparent;border-radius:10px;padding:9px 12px;cursor:pointer;background:var(--paper-3);transition:.15s;text-align:left}
+  .pchip-name{font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px}
+  .pchip-name .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .pchip-n{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:22px;letter-spacing:-.02em;margin-top:2px}
+  .pchip:hover{border-color:var(--line)}
+  .pchip.active{background:#fff;border-color:var(--ink);box-shadow:0 2px 8px -4px rgba(35,32,27,.3)}
+
+  .alertbar{display:none;align-items:center;gap:14px;background:rgba(180,68,46,.07);border:1px solid rgba(180,68,46,.25);border-radius:12px;padding:11px 16px;margin-bottom:18px;font-size:13.5px;color:var(--brick)}
+  .alertbar.show{display:flex} .alertbar b{font-weight:600}
+
+  .addwrap{margin-bottom:18px}
+  .addtoggle{width:100%;text-align:left;background:var(--paper-2);border:1px dashed var(--line);border-radius:12px;padding:13px 16px;cursor:pointer;font-family:inherit;font-size:14.5px;color:var(--ink-soft);display:flex;align-items:center;gap:9px;transition:.15s}
+  .addtoggle:hover{border-color:var(--pine);color:var(--pine)} .addtoggle .plus{font-size:18px;line-height:1}
+  .addform{display:none;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-top:10px;box-shadow:var(--shadow)}
+  .addform.open{display:block}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field.full{grid-column:1 / -1}
+  .field label{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+  .field input,.field select,.field textarea{font-family:inherit;font-size:14px;color:var(--ink);background:var(--paper-3);border:1px solid var(--line);border-radius:9px;padding:9px 11px;outline:none;transition:.15s;width:100%}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--pine);box-shadow:0 0 0 3px rgba(53,103,74,.1)}
+  .field textarea{resize:vertical;min-height:52px}
+  .field .mono{font-family:'JetBrains Mono',monospace}
+  .form-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}
+
+  .btn{border:1px solid var(--pine);background:var(--pine);color:#F7F3EB;font-family:inherit;font-weight:600;font-size:13.5px;padding:9px 16px;border-radius:9px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn:hover{background:var(--pine-deep)}
+  .btn.ghost{background:none;color:var(--pine)} .btn.ghost:hover{background:rgba(53,103,74,.08)}
+  .btn.small{padding:7px 12px;font-size:12.5px} .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .listhead{display:flex;justify-content:space-between;align-items:center;margin:22px 4px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+  .card{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:12px;box-shadow:var(--shadow);transition:.2s;position:relative;overflow:hidden}
+  .card.draggable{cursor:grab}
+  .card.dragging{opacity:.45;cursor:grabbing}
+  .card.dragover{border-color:var(--pine);box-shadow:0 0 0 3px rgba(53,103,74,.18)}
+  .grip{display:inline-flex;align-items:center;color:var(--ink-faint);font-size:15px;letter-spacing:-2px;cursor:grab;user-select:none;margin-right:2px}
+  .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--stripe,var(--line))}
+  .card.launched{opacity:.55;filter:saturate(.4)}
+  .card-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .ticket-id{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:12.5px;color:var(--ink);background:var(--paper-3);border:1px solid var(--line);padding:3px 8px;border-radius:6px}
+  .badge{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:11px;letter-spacing:.03em;padding:3px 8px;border-radius:6px}
+  .pri-P0{color:#fff;background:var(--brick)}
+  .pri-P1{color:#5a4712;background:rgba(168,132,46,.22);border:1px solid rgba(168,132,46,.4)}
+  .pri-P2{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
+  .sys{font-size:11.5px;font-weight:600;color:var(--pine-deep);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.28);padding:3px 9px;border-radius:20px}
+  .plat{font-size:11.5px;font-weight:600;color:var(--blue);background:rgba(62,110,158,.1);border:1px solid rgba(62,110,158,.28);padding:3px 9px;border-radius:20px}
+  .cat{font-size:11.5px;color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line);padding:3px 9px;border-radius:20px}
+  .status{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;margin-left:auto;cursor:pointer;border:1px solid transparent}
+  .card-title{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;line-height:1.25;margin-bottom:12px}
+  .card.launched .card-title{text-decoration:line-through;text-decoration-color:rgba(108,101,88,.4)}
+  .card-desc{font-size:14px;color:var(--ink-soft);line-height:1.65;margin:-6px 0 12px;white-space:pre-wrap;word-break:break-word}
+  .meta{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px 14px;padding-top:12px;border-top:1px solid var(--line-soft)}
+  .m{display:flex;flex-direction:column;gap:2px}
+  .m.span{grid-column:1 / -1;flex-direction:row;align-items:baseline;gap:10px;padding-bottom:9px;margin-bottom:2px;border-bottom:1px dashed var(--line-soft)}
+  .m.span .v{font-weight:600}
+  .m .k{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+  .m .v{font-size:13px;color:var(--ink)} .m .v.mono{font-family:'JetBrains Mono',monospace;font-size:12.5px}
+  .days{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px}
+  .days.warn{color:var(--gold)} .days.over{color:var(--brick)} .days.ok{color:var(--pine)}
+  .technote{margin-top:11px;padding:10px 12px;background:var(--paper-3);border-radius:9px;border:1px solid var(--line-soft);font-size:13px;color:var(--ink-soft)}
+  .technote b{color:var(--ink);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .card-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
+  .icon-btn{border:1px solid var(--line);background:none;color:var(--ink-soft);border-radius:7px;padding:5px 10px;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
+  .icon-btn:hover{border-color:var(--ink-soft);color:var(--ink)}
+  .icon-btn.danger:hover{border-color:var(--brick);color:var(--brick);background:rgba(180,68,46,.06)}
+  .empty{background:var(--paper-2);border:1px dashed var(--line);border-radius:var(--radius);padding:48px 20px;text-align:center;color:var(--ink-soft)}
+  .empty .et{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:19px;color:var(--ink);margin-bottom:5px}
+
+  /* collapsible sections */
+  .sect{margin-top:14px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .sect-head{display:flex;align-items:center;gap:12px;padding:15px 18px;cursor:pointer}
+  .sect-ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto}
+  .sect-ico.cloud{background:rgba(53,103,74,.13);color:var(--pine)}
+  .sect-ico.tg{background:rgba(62,110,158,.13);color:var(--blue)}
+  .sect-head .tt{font-weight:600;font-size:15px}
+  .sect-head .ts{font-size:12.5px;color:var(--ink-soft);margin-top:1px}
+  .sect-state{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 10px;border-radius:20px}
+  .st-off{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
+  .st-on{color:var(--pine);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.3)}
+  .sect-body{display:none;padding:0 18px 18px;border-top:1px solid var(--line-soft)}
+  .sect-body.open{display:block}
+  .sect-body .fgrid{margin-top:16px}
+  .help{font-size:12.5px;color:var(--ink-soft);line-height:1.7;margin-top:14px;padding:13px 15px;background:var(--paper-3);border-radius:10px;border:1px solid var(--line-soft)}
+  .help b{color:var(--ink)} .help ol{margin:6px 0 0 18px;display:flex;flex-direction:column;gap:4px}
+  .help code{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--paper);padding:1px 5px;border-radius:4px;border:1px solid var(--line)}
+  .sect-actions{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;align-items:center}
+  .sect-msg{font-size:12.5px;margin-left:auto} .sect-msg.ok{color:var(--pine)} .sect-msg.err{color:var(--brick)}
+  .synccode{margin-top:14px;padding:12px 14px;background:rgba(53,103,74,.06);border:1px solid rgba(53,103,74,.25);border-radius:10px}
+  .synccode .sc-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--pine-deep);margin-bottom:6px}
+  .synccode .sc-row{display:flex;gap:8px}
+  .synccode input{flex:1;font-family:'JetBrains Mono',monospace;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink)}
+  .warn-note{margin-top:12px;font-size:12px;color:var(--brick);background:rgba(180,68,46,.06);border:1px solid rgba(180,68,46,.2);border-radius:9px;padding:10px 13px;line-height:1.6}
+  .switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink)}
+  .switch input{position:absolute;opacity:0} .track{width:38px;height:22px;border-radius:20px;background:var(--line);position:relative;transition:.2s;flex:0 0 auto}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .switch input:checked + .track{background:var(--pine)} .switch input:checked + .track::after{left:18px}
+
+  footer{text-align:center;margin-top:32px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft);opacity:.7}
+  @media (max-width:560px){.fgrid{grid-template-columns:1fr}.brand h1{font-size:25px}.pchip{min-width:calc(50% - 4px)}.meta{grid-template-columns:repeat(2,1fr)}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  :focus-visible{outline:2px solid var(--pine);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="cloudbar off" id="cloudbar">
+    <span class="cdot"></span>
+    <span id="cloudMsg">未連線雲端 — 此裝置重開機資料會消失,請先設定雲端同步</span>
+    <span class="cb-act"><button class="link-btn" id="cloudSetupLink">前往設定</button></span>
+  </div>
+
+  <div class="topbar">
+    <div class="brand">
+      <h1>需求追蹤</h1>
+      <div class="sub"><span id="dateLabel">—</span> · 共 <b id="totalN">0</b> 筆需求</div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost small" id="digestBtn">傳送今日摘要</button>
+    </div>
+  </div>
+
+  <div class="pipeline" id="pipeline"></div>
+  <div class="alertbar" id="alertbar"></div>
+
+  <div class="addwrap">
+    <button class="addtoggle" id="addToggle"><span class="plus">＋</span> 新增需求</button>
+    <div class="addform" id="addForm">
+      <div class="fgrid">
+        <div class="field"><label>ID / Ticket</label><input class="mono" id="f_ticket" placeholder="JIRA-123 / TRELLO 編號"></div>
+        <div class="field"><label>優先級</label><select id="f_priority"><option value="P0">P0 · 立即處理</option><option value="P1" selected>P1 · 本版必備</option><option value="P2">P2 · 可延後</option></select></div>
+        <div class="field"><label>系統</label><select id="f_system"><option>KR系統</option><option>DY系統</option><option>LJ系統</option></select></div>
+        <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
+        <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
+        <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>開發中</option><option>待測試</option><option>阻塞</option><option>已上線</option></select></div>
+        <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
+        <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea></div>
+        <div class="field"><label>需求單位</label><input id="f_unit" placeholder="客服 / 風控 …"></div>
+        <div class="field"><label>負責 PM</label><input id="f_pm" placeholder="技術對口"></div>
+        <div class="field"><label>提交日期</label><input class="mono" id="f_submit" type="date"></div>
+        <div class="field"><label>預計上線日 (Deadline)</label><input class="mono" id="f_due" type="date"></div>
+        <div class="field full"><label>文件 (PRD / 設計稿連結)</label><input class="mono" id="f_doc" placeholder="https://…"></div>
+        <div class="field full"><label>技術回復 (依賴 / 卡點)</label><textarea id="f_note" placeholder="是否依賴其他需求？目前卡在哪個環節？"></textarea></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn ghost" id="cancelAdd">取消</button>
+        <button class="btn" id="saveAdd">加入需求</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="listhead"><span id="listTitle">全部需求</span><span style="display:flex;align-items:center;gap:12px"><button class="icon-btn" id="sortToggle">排序:自動</button><span id="listCount">—</span></span></div>
+  <div id="cardList"></div>
+
+  <!-- Cloud sync -->
+  <section class="sect" id="cloudSect">
+    <div class="sect-head" id="cloudHead">
+      <div class="sect-ico cloud"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10a4 4 0 0 0-7.7-1.3A3.5 3.5 0 0 0 5 12a3.5 3.5 0 0 0 .5 7h12a3.5 3.5 0 0 0 .5-9z"/></svg></div>
+      <div><div class="tt">雲端同步</div><div class="ts">重開機不遺失 · 資料存到你的 JSONBin</div></div>
+      <span class="sect-state st-off" id="cloudSectState">未連線</span>
+    </div>
+    <div class="sect-body" id="cloudBody">
+      <div class="fgrid">
+        <div class="field"><label>JSONBin Master Key</label><input class="mono" id="c_key" placeholder="$2a$10$…" autocomplete="off"></div>
+        <div class="field"><label>Bin ID(留空＝自動建立)</label><input class="mono" id="c_bin" placeholder="留空即自動建立新資料庫" autocomplete="off"></div>
+      </div>
+      <div class="sect-actions">
+        <button class="btn small" id="cConnect">連線 / 建立</button>
+        <button class="btn ghost small" id="cBackup">立即備份</button>
+        <button class="btn ghost small" id="cReload">從雲端重新載入</button>
+        <span class="sect-msg" id="cMsg"></span>
+      </div>
+
+      <div class="synccode" id="syncBox" style="display:none">
+        <div class="sc-label">你的同步碼 — 存到手機,下次貼上即可還原</div>
+        <div class="sc-row">
+          <input id="syncCodeOut" readonly>
+          <button class="btn small" id="copySync">複製</button>
+        </div>
+      </div>
+
+      <div class="fgrid" style="margin-top:14px">
+        <div class="field full"><label>已有同步碼？貼上還原</label>
+          <div style="display:flex;gap:8px">
+            <input class="mono" id="c_code" placeholder="貼上同步碼…" autocomplete="off" style="flex:1">
+            <button class="btn small" id="cFromCode">連線</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="help">
+        <b>取得 Master Key(一次性,約 1 分鐘):</b>
+        <ol>
+          <li>到 <code>jsonbin.io</code> 免費註冊並登入。</li>
+          <li>進入 <b>API Keys</b>,複製 <code>X-MASTER-KEY</code> 貼到上方。</li>
+          <li>Bin ID 留空,按「連線 / 建立」→ 系統自動建立資料庫並給你<b>同步碼</b>。</li>
+        </ol>
+        <div style="margin-top:9px">把同步碼存到手機(或私人記事)。這台還原機重開機後,回到本頁把同步碼貼進最下方欄位,按「連線」即可還原全部資料。</div>
+      </div>
+      <div class="warn-note">⚠ 若這些是公司機密需求,放在第三方免費雲端可能不符合公司資安規範。敏感內容請改用公司核准的儲存空間,或改走自架後端(我可以協助)。</div>
+    </div>
+  </section>
+
+  <!-- Telegram -->
+  <section class="sect" id="tgSect">
+    <div class="sect-head" id="tgHead">
+      <div class="sect-ico tg"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M9.8 15.6l-.4 4.6c.5 0 .8-.2 1.1-.5l2.6-2.5 5.4 3.9c1 .5 1.7.3 2-.9l3.6-16.9c.3-1.4-.5-2-1.5-1.6L1.4 9.3C0 9.9 0 10.7 1.2 11l5.3 1.6L18.8 5c.6-.4 1.1-.2.7.2z"/></svg></div>
+      <div><div class="tt">Telegram 通知</div><div class="ts">每日摘要、到期提醒、阻塞警示推到你的 Telegram</div></div>
+      <span class="sect-state st-off" id="tgState">未設定</span>
+    </div>
+    <div class="sect-body" id="tgBody">
+      <div class="fgrid">
+        <div class="field"><label>Bot Token</label><input class="mono" id="tg_token" placeholder="123456:ABC-DEF…" autocomplete="off"></div>
+        <div class="field"><label>Chat ID</label><input class="mono" id="tg_chat" placeholder="你的 chat id" autocomplete="off"></div>
+        <div class="field"><label>每日摘要時間</label><input class="mono" id="tg_time" type="time" value="09:00"></div>
+        <div class="field"><label>自動提醒</label>
+          <label class="switch" style="margin-top:8px"><input type="checkbox" id="tg_auto"><span class="track"></span><span>開啟(需保持此頁開著)</span></label>
+        </div>
+      </div>
+      <div class="sect-actions">
+        <button class="btn small" id="tgSave">儲存</button>
+        <button class="btn ghost small" id="tgTest">測試連線</button>
+        <span class="sect-msg" id="tgMsg"></span>
+      </div>
+      <div class="help">
+        <b>三步驟設定(約 2 分鐘):</b>
+        <ol>
+          <li>Telegram 搜尋 <code>@BotFather</code>,輸入 <code>/newbot</code> 建立機器人,拿到 <b>Bot Token</b>。</li>
+          <li>先對你的新機器人傳一句話,讓它能回覆你。</li>
+          <li>取得 <b>Chat ID</b>:搜尋 <code>@userinfobot</code>,或填好 Token 後按「測試連線」自動抓取。</li>
+        </ol>
+        <div style="margin-top:9px">推送直接呼叫 Telegram API,不需自架伺服器。「自動每日摘要」需保持此頁開著;要在<b>電腦關機時也照送</b>,可搭配伺服器排程(我可幫你接 GitHub Actions,直接讀雲端資料每天推送)。</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>REQUIREMENT TRACKER · 雲端同步 · 離線可用</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const LKEY="reqtracker.v2", DAY=86400000;
+  const STATUSES=["待評估","開發中","待測試","阻塞","已上線"];
+  const SCOLOR={"待評估":"var(--gold)","開發中":"var(--blue)","待測試":"var(--teal)","阻塞":"var(--brick)","已上線":"var(--grey)"};
+  const SBG={"待評估":"rgba(168,132,46,.15)","開發中":"rgba(62,110,158,.15)","待測試":"rgba(46,139,132,.15)","阻塞":"rgba(180,68,46,.15)","已上線":"rgba(139,133,120,.15)"};
+  const API="https://api.jsonbin.io/v3/b";
+  const $=id=>document.getElementById(id);
+
+  let store=loadLocal();
+  let filter=null, notified={}, editingId=null, dragId=null, manualDrag=false;
+  let cloudReady=false, pushTimer=null;
+
+  function loadLocal(){
+    try{const r=localStorage.getItem(LKEY); if(r) return JSON.parse(r);}catch(e){}
+    return {items:[], tg:{token:"",chat:"",time:"09:00",auto:false}, cloud:{bin:"",key:""}, sortMode:"auto"};
+  }
+  function saveLocal(){ try{localStorage.setItem(LKEY,JSON.stringify(store));}catch(e){} }
+  function save(){ saveLocal(); if(cloudReady) scheduleCloudPush(); }
+
+  const pad=n=>String(n).padStart(2,"0");
+  function ymd(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+  function today(){return ymd(new Date());}
+  function daysLeft(due){ if(!due) return null; const a=new Date(due+"T00:00:00"),b=new Date(today()+"T00:00:00"); return Math.round((a-b)/DAY); }
+
+  /* ---------------- CLOUD SYNC (JSONBin) ---------------- */
+  function cloudConfigured(){ return store.cloud.bin && store.cloud.key; }
+  function cloudUI(state,msg){ // state: off | on | sync
+    const bar=$("cloudbar"); bar.className="cloudbar "+state;
+    $("cloudMsg").textContent=msg;
+    const s=$("cloudSectState");
+    if(state==="on"){ s.textContent="已連線"; s.className="sect-state st-on"; }
+    else if(state==="sync"){ s.textContent="同步中"; s.className="sect-state st-on"; }
+    else{ s.textContent="未連線"; s.className="sect-state st-off"; }
+  }
+  function encSync(bin,key){ return btoa(unescape(encodeURIComponent(bin+"|"+key))); }
+  function decSync(code){ try{ const s=decodeURIComponent(escape(atob(code.trim()))); const i=s.indexOf("|"); if(i<0) return null; return {bin:s.slice(0,i),key:s.slice(i+1)}; }catch(e){ return null; } }
+  function showSyncCode(){ if(!cloudConfigured()) return; $("syncBox").style.display="block"; $("syncCodeOut").value=encSync(store.cloud.bin,store.cloud.key); }
+
+  async function cloudRead(){
+    const r=await fetch(API+"/"+store.cloud.bin+"/latest",{headers:{"X-Master-Key":store.cloud.key}});
+    if(!r.ok) throw new Error("讀取失敗 ("+r.status+")");
+    const j=await r.json(); return j.record;
+  }
+  async function cloudWrite(data){
+    const r=await fetch(API+"/"+store.cloud.bin,{method:"PUT",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key},body:JSON.stringify(data)});
+    if(!r.ok) throw new Error("寫入失敗 ("+r.status+")");
+    return r.json();
+  }
+  async function cloudCreate(data){
+    const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key,"X-Bin-Name":"requirement-tracker","X-Bin-Private":"true"},body:JSON.stringify(data)});
+    if(!r.ok) throw new Error("建立失敗 ("+r.status+")");
+    const j=await r.json(); return j.metadata.id;
+  }
+
+  function payload(){ return {items:store.items, tg:store.tg, sortMode:store.sortMode, _updated:new Date().toISOString()}; }
+  function adopt(rec){ if(rec&&Array.isArray(rec.items)){ store.items=rec.items; if(rec.tg) store.tg=Object.assign(store.tg,rec.tg); if(rec.sortMode) store.sortMode=rec.sortMode; saveLocal(); } }
+
+  function scheduleCloudPush(){
+    cloudUI("sync","同步中…");
+    clearTimeout(pushTimer);
+    pushTimer=setTimeout(async ()=>{
+      try{ await cloudWrite(payload()); cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失"); }
+      catch(e){ cloudUI("off","備份失敗:"+e.message+"(資料仍在本機,連線恢復後會重試)"); }
+    },1500);
+  }
+
+  async function connectCloud(){
+    store.cloud.key=$("c_key").value.trim();
+    store.cloud.bin=$("c_bin").value.trim();
+    if(!store.cloud.key){ cMsg("請先填入 Master Key","err"); return; }
+    cMsg("連線中…",""); cloudUI("sync","連線中…");
+    try{
+      if(!store.cloud.bin){
+        // create new bin seeded with current local data
+        const id=await cloudCreate(payload());
+        store.cloud.bin=id; $("c_bin").value=id;
+        saveLocal(); cloudReady=true; showSyncCode();
+        cMsg("已建立雲端資料庫並上傳目前資料 ✓","ok");
+        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
+      }else{
+        const rec=await cloudRead();
+        adopt(rec); saveLocal(); cloudReady=true; showSyncCode();
+        cMsg("已從雲端載入 ✓","ok"); render(); loadTgForm(); tgStateUI();
+        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
+      }
+    }catch(e){ cloudReady=false; cMsg("失敗:"+e.message,"err"); cloudUI("off","連線失敗,請檢查 Key / Bin ID"); }
+  }
+  function cMsg(t,cls){ const m=$("cMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
+
+  $("cloudHead").onclick=()=>$("cloudBody").classList.toggle("open");
+  $("cloudSetupLink").onclick=()=>{ $("cloudBody").classList.add("open"); $("cloudSect").scrollIntoView({behavior:"smooth"}); };
+  $("cConnect").onclick=connectCloud;
+  $("cFromCode").onclick=()=>{ const d=decSync($("c_code").value); if(!d){ cMsg("同步碼無效","err"); return; } $("c_key").value=d.key; $("c_bin").value=d.bin; connectCloud(); };
+  $("cBackup").onclick=async ()=>{ if(!cloudConfigured()){cMsg("尚未連線雲端","err");return;} cMsg("備份中…",""); try{ await cloudWrite(payload()); cMsg("已備份到雲端 ✓","ok"); }catch(e){ cMsg("失敗:"+e.message,"err"); } };
+  $("cReload").onclick=async ()=>{ if(!cloudConfigured()){cMsg("尚未連線雲端","err");return;} cMsg("載入中…",""); try{ adopt(await cloudRead()); render(); loadTgForm(); tgStateUI(); cMsg("已重新載入 ✓","ok"); }catch(e){ cMsg("失敗:"+e.message,"err"); } };
+  $("copySync").onclick=()=>{ const el=$("syncCodeOut"); el.select(); try{navigator.clipboard.writeText(el.value);}catch(e){document.execCommand("copy");} $("copySync").textContent="已複製"; setTimeout(()=>$("copySync").textContent="複製",1500); };
+
+  /* ---------------- RENDER ---------------- */
+  function render(){
+    const d=new Date();
+    const MON=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+    const DOW=["週日","週一","週二","週三","週四","週五","週六"];
+    $("dateLabel").textContent=MON[d.getMonth()]+" "+d.getDate()+" · "+DOW[d.getDay()];
+    $("totalN").textContent=store.items.length;
+
+    const counts={}; STATUSES.forEach(s=>counts[s]=0);
+    store.items.forEach(t=>{counts[t.status]=(counts[t.status]||0)+1;});
+    const pl=$("pipeline"); pl.innerHTML="";
+    STATUSES.forEach(s=>{
+      const b=document.createElement("button");
+      b.className="pchip"+(filter===s?" active":"");
+      b.innerHTML='<div class="pchip-name"><span class="dot" style="background:'+SCOLOR[s]+'"></span>'+s+'</div><div class="pchip-n">'+counts[s]+'</div>';
+      b.onclick=()=>{filter=(filter===s?null:s); render();};
+      pl.appendChild(b);
+    });
+
+    const overdue=store.items.filter(t=>t.status!=="已上線"&&t.due&&daysLeft(t.due)<0);
+    const blocked=store.items.filter(t=>t.status==="阻塞");
+    const ab=$("alertbar"); const parts=[];
+    if(overdue.length) parts.push('<b>⚠ '+overdue.length+' 件逾期</b>');
+    if(blocked.length) parts.push('<b>🚧 '+blocked.length+' 件阻塞</b>');
+    if(parts.length){ab.innerHTML=parts.join('　·　')+'　需優先排除障礙';ab.classList.add("show");} else ab.classList.remove("show");
+
+    let items=store.items.slice();
+    if(filter) items=items.filter(t=>t.status===filter);
+    manualDrag = (store.sortMode==="manual" && !filter);
+    if(store.sortMode!=="manual"){
+      const prio={P0:0,P1:1,P2:2};
+      items.sort((a,b)=>{
+        const la=a.status==="已上線"?1:0, lb=b.status==="已上線"?1:0;
+        if(la!==lb) return la-lb;
+        if(prio[a.priority]!==prio[b.priority]) return prio[a.priority]-prio[b.priority];
+        const da=a.due||"9999", db=b.due||"9999"; return da<db?-1:da>db?1:0;
+      });
+    }
+    $("sortToggle").textContent = "排序:"+(store.sortMode==="manual"?"手動(可拖曳)":"自動");
+    $("listTitle").textContent=filter?filter:"全部需求";
+    $("listCount").textContent=items.length+" 筆";
+    const list=$("cardList"); list.innerHTML="";
+    if(items.length===0){
+      const e=document.createElement("div"); e.className="empty";
+      e.innerHTML='<div class="et">'+(filter?"此狀態沒有需求":"還沒有任何需求")+'</div><div>'+(filter?"點上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
+      list.appendChild(e); return;
+    }
+    items.forEach(t=>list.appendChild(card(t)));
+  }
+
+  function card(t){
+    const el=document.createElement("div");
+    el.className="card"+(t.status==="已上線"?" launched":"")+(manualDrag?" draggable":"");
+    el.style.setProperty("--stripe",SCOLOR[t.status]);
+    const dl=daysLeft(t.due);
+    let daysHtml="—", daysCls="ok";
+    if(t.status==="已上線"){ daysHtml=t.launched?("上線 "+t.launched):"已上線"; }
+    else if(dl===null){ daysHtml="未定"; daysCls=""; }
+    else if(dl<0){ daysHtml="逾期 "+(-dl)+" 天"; daysCls="over"; }
+    else if(dl===0){ daysHtml="今天到期"; daysCls="warn"; }
+    else if(dl<=2){ daysHtml="剩 "+dl+" 天"; daysCls="warn"; }
+    else{ daysHtml="剩 "+dl+" 天"; }
+    el.innerHTML=
+      '<div class="card-top">'+
+        (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
+        (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
+        '<span class="badge pri-'+t.priority+'">'+t.priority+'</span>'+
+        (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
+        '<span class="cat">'+esc(t.category)+'</span>'+
+        '<span class="status" data-cycle style="color:'+SCOLOR[t.status]+';background:'+SBG[t.status]+'">'+t.status+' ▾</span>'+
+      '</div>'+
+      '<div class="card-title">'+esc(t.title)+'</div>'+
+      (t.desc?'<div class="card-desc">'+esc(t.desc)+'</div>':'')+
+      '<div class="meta">'+
+        '<div class="m span"><span class="k">平台</span><span class="v">'+esc(t.platform||"—")+'</span></div>'+
+        metaCell("需求單位",esc(t.unit||"—"))+metaCell("負責 PM",esc(t.pm||"—"))+
+        metaCell("提交日期",'<span class="mono">'+(t.submit||"—")+'</span>')+
+        metaCell("預計上線",'<span class="mono">'+(t.due||"—")+'</span>')+
+        metaCell("剩餘天數",'<span class="days '+daysCls+'">'+daysHtml+'</span>')+
+        metaCell("文件",t.doc?'<a href="'+esc(t.doc)+'" target="_blank" rel="noopener">開啟 ↗</a>':"—")+
+      '</div>'+
+      (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
+      '<div class="card-actions"><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>';
+    el.querySelector("[data-cycle]").onclick=()=>{
+      const i=STATUSES.indexOf(t.status); t.status=STATUSES[(i+1)%STATUSES.length];
+      if(t.status==="已上線"&&!t.launched) t.launched=today();
+      if(t.status!=="已上線") t.launched=null;
+      save(); render();
+    };
+    el.querySelector("[data-del]").onclick=()=>{ if(confirm("刪除這筆需求？")){ store.items=store.items.filter(x=>x.id!==t.id); save(); render(); } };
+    el.querySelector("[data-edit]").onclick=()=>openEdit(t);
+    if(manualDrag){
+      el.draggable=true;
+      el.addEventListener("dragstart",e=>{ dragId=t.id; el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
+      el.addEventListener("dragend",()=>{ dragId=null; document.querySelectorAll(".card").forEach(c=>c.classList.remove("dragging","dragover")); });
+      el.addEventListener("dragover",e=>{ e.preventDefault(); if(dragId&&dragId!==t.id) el.classList.add("dragover"); });
+      el.addEventListener("dragleave",()=>el.classList.remove("dragover"));
+      el.addEventListener("drop",e=>{
+        e.preventDefault(); el.classList.remove("dragover");
+        if(!dragId||dragId===t.id) return;
+        const arr=store.items, from=arr.findIndex(x=>x.id===dragId), to=arr.findIndex(x=>x.id===t.id);
+        if(from<0||to<0) return;
+        const [moved]=arr.splice(from,1); arr.splice(to,0,moved);
+        save(); render();
+      });
+    }
+    return el;
+  }
+  function metaCell(k,v){return '<div class="m"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); if(store.sortMode==="manual"&&filter) filter=null; save(); render(); };
+  function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+  /* ---------------- ADD / EDIT ---------------- */
+  function openForm(){ $("addForm").classList.add("open"); $("addToggle").style.display="none"; }
+  function closeForm(){ $("addForm").classList.remove("open"); $("addToggle").style.display="flex"; editingId=null; $("saveAdd").textContent="加入需求"; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  $("addToggle").onclick=()=>{ clearForm(); openForm(); $("f_title").focus(); };
+  $("cancelAdd").onclick=closeForm;
+  function openEdit(t){
+    editingId=t.id;
+    $("f_ticket").value=t.ticket||""; $("f_priority").value=t.priority; $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
+    $("f_desc").value=t.desc||""; $("f_category").value=t.category; $("f_status").value=t.status; $("f_unit").value=t.unit||"";
+    $("f_pm").value=t.pm||""; $("f_submit").value=t.submit||today(); $("f_due").value=t.due||"";
+    $("f_doc").value=t.doc||""; $("f_note").value=t.note||"";
+    $("saveAdd").textContent="儲存變更"; openForm(); $("addForm").scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  $("saveAdd").onclick=()=>{
+    const title=$("f_title").value.trim(); if(!title){ $("f_title").focus(); return; }
+    const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, system:$("f_system").value, platform:$("f_platform").value.trim(), title,
+      desc:$("f_desc").value.trim(), category:$("f_category").value, status:$("f_status").value, unit:$("f_unit").value.trim(),
+      pm:$("f_pm").value.trim(), submit:$("f_submit").value||today(), due:$("f_due").value||"",
+      doc:$("f_doc").value.trim(), note:$("f_note").value.trim() };
+    if(editingId){ const t=store.items.find(x=>x.id===editingId); Object.assign(t,data);
+      if(t.status==="已上線"&&!t.launched) t.launched=today(); if(t.status!=="已上線") t.launched=null;
+    }else{ data.id=Date.now()+"-"+Math.random().toString(36).slice(2,6); data.launched=data.status==="已上線"?today():null; store.items.push(data); }
+    save(); closeForm(); render();
+  };
+
+  /* ---------------- TELEGRAM ---------------- */
+  function tgConfigured(){ return store.tg.token && store.tg.chat; }
+  function tgStateUI(){ const s=$("tgState");
+    if(tgConfigured()&&store.tg.auto){ s.textContent="自動提醒中"; s.className="sect-state st-on"; }
+    else if(tgConfigured()){ s.textContent="已設定"; s.className="sect-state st-on"; }
+    else{ s.textContent="未設定"; s.className="sect-state st-off"; } }
+  function loadTgForm(){ $("tg_token").value=store.tg.token; $("tg_chat").value=store.tg.chat; $("tg_time").value=store.tg.time||"09:00"; $("tg_auto").checked=!!store.tg.auto; }
+  $("tgHead").onclick=()=>$("tgBody").classList.toggle("open");
+  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
+  function tgMsg(t,cls){ const m=$("tgMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
+  async function sendTg(text){
+    const token=($("tg_token").value||store.tg.token).trim(), chat=($("tg_chat").value||store.tg.chat).trim();
+    if(!token||!chat) throw new Error("尚未填寫 Token 或 Chat ID");
+    const res=await fetch("https://api.telegram.org/bot"+token+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text,parse_mode:"HTML",disable_web_page_preview:true})});
+    const j=await res.json(); if(!j.ok) throw new Error(j.description||"傳送失敗"); return j;
+  }
+  async function tryDetectChat(token){ try{ const r=await fetch("https://api.telegram.org/bot"+token+"/getUpdates"); const j=await r.json(); if(j.ok&&j.result.length){ const last=j.result[j.result.length-1]; const c=last.message&&last.message.chat&&last.message.chat.id; if(c) return String(c); } }catch(e){} return null; }
+  $("tgTest").onclick=async ()=>{
+    tgMsg("連線中…","");
+    try{
+      let token=$("tg_token").value.trim(); if(!token){ tgMsg("請先填寫 Bot Token","err"); return; }
+      if(!$("tg_chat").value.trim()){ const c=await tryDetectChat(token); if(c){ $("tg_chat").value=c; tgMsg("已自動抓到 Chat ID:"+c,"ok"); } else{ tgMsg("抓不到 Chat ID,請先對機器人傳一句話,或用 @userinfobot 取得","err"); return; } }
+      await sendTg("✅ <b>需求追蹤</b> 連線成功\n之後的每日摘要與提醒都會送到這裡。");
+      store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); save(); tgStateUI();
+      tgMsg("測試訊息已送出,請查看 Telegram ✓","ok");
+    }catch(e){ tgMsg("失敗:"+e.message,"err"); }
+  };
+  function buildDigest(){
+    const counts={}; STATUSES.forEach(s=>counts[s]=0); store.items.forEach(t=>counts[t.status]++);
+    let msg="📋 <b>需求追蹤日報</b> ("+today().slice(5)+")\n";
+    msg+="🟨待評估 "+counts["待評估"]+" · 🟦開發中 "+counts["開發中"]+" · 🟪待測試 "+counts["待測試"]+" · 🟥阻塞 "+counts["阻塞"]+" · 🟩已上線 "+counts["已上線"]+"\n";
+    const soon=store.items.filter(t=>t.status!=="已上線"&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
+    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+(t.ticket||"—")+"] "+t.title+" — "+tag+" ("+t.priority+")\n"; }); }
+    const blocked=store.items.filter(t=>t.status==="阻塞");
+    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+(t.ticket||"—")+"] "+t.title+(t.note?" — "+t.note.split("\n")[0]:"")+"\n"; }); }
+    if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
+    return msg;
+  }
+  $("digestBtn").onclick=async ()=>{
+    if(!tgConfigured()){ $("tgBody").classList.add("open"); tgMsg("請先設定 Telegram","err"); $("tgHead").scrollIntoView({behavior:"smooth"}); return; }
+    $("digestBtn").disabled=true; $("digestBtn").textContent="傳送中…";
+    try{ await sendTg(buildDigest()); tgMsg("今日摘要已送出 ✓","ok"); }catch(e){ alert("傳送失敗:"+e.message); }
+    $("digestBtn").disabled=false; $("digestBtn").textContent="傳送今日摘要";
+  };
+
+  function tick(){
+    render();
+    if(!store.tg.auto||!tgConfigured()) return;
+    const now=new Date(); const hm=pad(now.getHours())+":"+pad(now.getMinutes()); const stamp=today()+" "+hm;
+    if(notified._stamp!==stamp) notified={_stamp:stamp};
+    if(store.tg.time===hm&&!notified.daily){ notified.daily=true; sendTg(buildDigest()).catch(()=>{}); }
+  }
+
+  /* ---------------- INIT ---------------- */
+  async function init(){
+    // adopt sync code from URL hash, e.g. #sync=XXXX
+    const m=location.hash.match(/sync=([^&]+)/);
+    if(m){ const d=decSync(decodeURIComponent(m[1])); if(d){ store.cloud=d; saveLocal(); } }
+    loadTgForm(); render();
+
+    if(cloudConfigured()){
+      $("c_key").value=store.cloud.key; $("c_bin").value=store.cloud.bin;
+      cloudUI("sync","連線雲端中…");
+      try{ adopt(await cloudRead()); cloudReady=true; render(); loadTgForm(); tgStateUI(); showSyncCode();
+        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
+      }catch(e){ cloudReady=false; cloudUI("off","雲端連線失敗,使用本機資料:"+e.message); }
+    }else{
+      cloudUI("off","未連線雲端 — 此裝置重開機資料會消失,請先設定雲端同步");
+    }
+    tgStateUI();
+    setInterval(tick,20000);
+    document.addEventListener("visibilitychange",()=>{ if(!document.hidden) render(); });
+  }
+  init();
+})();
+</script>
+</body>
+</html>
