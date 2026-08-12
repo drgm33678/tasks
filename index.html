@@ -24,7 +24,17 @@
     color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.5;
     padding:22px 18px 90px;
   }
-  .wrap{max-width:860px;margin:0 auto}
+  .shell{display:flex;gap:22px;max-width:1080px;margin:0 auto;align-items:flex-start}
+  .wrap{flex:1;min-width:0;max-width:860px}
+  .sidebar{width:184px;flex:0 0 184px;position:sticky;top:22px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 12px;box-shadow:var(--shadow)}
+  .side-title{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);padding:2px 8px 10px}
+  .side-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:9px;padding:9px 10px;margin-bottom:3px;cursor:pointer;font-family:inherit;font-size:13.5px;color:var(--ink);transition:.15s}
+  .side-item:hover{background:var(--paper-3)}
+  .side-item.active{background:rgba(53,103,74,.1);border-color:rgba(53,103,74,.28);color:var(--pine-deep);font-weight:600}
+  .side-item .sn{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-faint)}
+  .side-item.active .sn{color:var(--pine)}
+  .side-label{display:inline-flex;align-items:center;gap:7px}
+  .alert-dot{width:8px;height:8px;border-radius:50%;background:var(--brick);box-shadow:0 0 0 3px rgba(180,68,46,.16);flex:0 0 auto}
   a{color:var(--pine);text-decoration:none} a:hover{text-decoration:underline}
 
   /* cloud banner */
@@ -95,7 +105,8 @@
   .sys{font-size:11.5px;font-weight:600;color:var(--pine-deep);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.28);padding:3px 9px;border-radius:20px}
   .plat{font-size:11.5px;font-weight:600;color:var(--blue);background:rgba(62,110,158,.1);border:1px solid rgba(62,110,158,.28);padding:3px 9px;border-radius:20px}
   .cat{font-size:11.5px;color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line);padding:3px 9px;border-radius:20px}
-  .status{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;margin-left:auto;cursor:pointer;border:1px solid transparent}
+  .status-sel{margin-left:auto;font-family:inherit;font-size:11.5px;font-weight:600;padding:4px 26px 4px 12px;border-radius:20px;border:1px solid transparent;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236C6558' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+  .status-sel:focus{outline:none;box-shadow:0 0 0 3px rgba(53,103,74,.15)}
   .card-title{font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:18px;letter-spacing:-.01em;line-height:1.25;margin-bottom:12px}
   .card.launched .card-title{text-decoration:line-through;text-decoration-color:rgba(108,101,88,.4)}
   .card-desc{font-size:14px;color:var(--ink-soft);line-height:1.65;margin:-6px 0 12px;white-space:pre-wrap;word-break:break-word}
@@ -146,13 +157,16 @@
   .switch input:checked + .track{background:var(--pine)} .switch input:checked + .track::after{left:18px}
 
   footer{text-align:center;margin-top:32px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft);opacity:.7}
+  @media (max-width:820px){.shell{flex-direction:column;gap:14px}.sidebar{width:100%;flex:0 0 auto;position:static;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.side-title{padding:2px 6px;width:100%}.side-item{width:auto;flex:0 0 auto;margin-bottom:0}}
   @media (max-width:560px){.fgrid{grid-template-columns:1fr}.brand h1{font-size:25px}.pchip{min-width:calc(50% - 4px)}.meta{grid-template-columns:repeat(2,1fr)}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
   :focus-visible{outline:2px solid var(--pine);outline-offset:2px}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="wrap">
 
   <div class="cloudbar off" id="cloudbar">
     <span class="cdot"></span>
@@ -285,6 +299,7 @@
   </section>
 
   <footer>REQUIREMENT TRACKER · 雲端同步 · 離線可用</footer>
+  </div>
 </div>
 
 <script>
@@ -298,7 +313,8 @@
   const $=id=>document.getElementById(id);
 
   let store=loadLocal();
-  let filter=null, notified={}, editingId=null, dragId=null, manualDrag=false;
+  let filter=null, systemFilter=null, notified={}, editingId=null, dragId=null, manualDrag=false;
+  const SYSTEMS=["KR系統","DY系統","LJ系統"];
   let cloudReady=false, pushTimer=null;
 
   function loadLocal(){
@@ -412,9 +428,29 @@
     if(blocked.length) parts.push('<b>🚧 '+blocked.length+' 件阻塞</b>');
     if(parts.length){ab.innerHTML=parts.join('　·　')+'　需優先排除障礙';ab.classList.add("show");} else ab.classList.remove("show");
 
+    // 左側系統分類
+    const sb=$("sidebar"); sb.innerHTML='<div class="side-title">系統</div>';
+    const sysCount=s=>store.items.filter(t=>t.system===s).length;
+    const alertCount=val=>store.items.filter(t=>{
+      if(val && t.system!==val) return false;
+      const overdue=t.status!=="已上線"&&t.due&&daysLeft(t.due)<0;
+      return overdue || t.status==="阻塞";
+    }).length;
+    const mkSide=(label,val,n)=>{
+      const b=document.createElement("button");
+      b.className="side-item"+(systemFilter===val?" active":"");
+      const ac=alertCount(val);
+      b.innerHTML='<span class="side-label">'+label+(ac?'<span class="alert-dot" title="'+ac+' 件逾期或阻塞"></span>':'')+'</span><span class="sn">'+n+'</span>';
+      b.onclick=()=>{ systemFilter=(systemFilter===val?null:val); render(); };
+      sb.appendChild(b);
+    };
+    mkSide("全部", null, store.items.length);
+    SYSTEMS.forEach(s=>mkSide(s, s, sysCount(s)));
+
     let items=store.items.slice();
+    if(systemFilter) items=items.filter(t=>t.system===systemFilter);
     if(filter) items=items.filter(t=>t.status===filter);
-    manualDrag = (store.sortMode==="manual" && !filter);
+    manualDrag = (store.sortMode==="manual" && !filter && !systemFilter);
     if(store.sortMode!=="manual"){
       const prio={P0:0,P1:1,P2:2};
       items.sort((a,b)=>{
@@ -425,12 +461,13 @@
       });
     }
     $("sortToggle").textContent = "排序:"+(store.sortMode==="manual"?"手動(可拖曳)":"自動");
-    $("listTitle").textContent=filter?filter:"全部需求";
+    $("listTitle").textContent = [systemFilter, filter].filter(Boolean).join(" · ") || "全部需求";
     $("listCount").textContent=items.length+" 筆";
     const list=$("cardList"); list.innerHTML="";
     if(items.length===0){
       const e=document.createElement("div"); e.className="empty";
-      e.innerHTML='<div class="et">'+(filter?"此狀態沒有需求":"還沒有任何需求")+'</div><div>'+(filter?"點上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
+      const filtered=filter||systemFilter;
+      e.innerHTML='<div class="et">'+(filtered?"這個篩選下沒有需求":"還沒有任何需求")+'</div><div>'+(filtered?"點左側「全部」或上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
       list.appendChild(e); return;
     }
     items.forEach(t=>list.appendChild(card(t)));
@@ -455,7 +492,9 @@
         '<span class="badge pri-'+t.priority+'">'+t.priority+'</span>'+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
         '<span class="cat">'+esc(t.category)+'</span>'+
-        '<span class="status" data-cycle style="color:'+SCOLOR[t.status]+';background:'+SBG[t.status]+'">'+t.status+' ▾</span>'+
+        '<select class="status-sel" data-status style="color:'+SCOLOR[t.status]+';background-color:'+SBG[t.status]+'">'+
+          STATUSES.map(s=>'<option'+(s===t.status?' selected':'')+'>'+s+'</option>').join('')+
+        '</select>'+
       '</div>'+
       '<div class="card-title">'+esc(t.title)+'</div>'+
       (t.desc?'<div class="card-desc">'+esc(t.desc)+'</div>':'')+
@@ -469,12 +508,14 @@
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
       '<div class="card-actions"><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>';
-    el.querySelector("[data-cycle]").onclick=()=>{
-      const i=STATUSES.indexOf(t.status); t.status=STATUSES[(i+1)%STATUSES.length];
+    const sel=el.querySelector("[data-status]");
+    sel.onchange=()=>{
+      t.status=sel.value;
       if(t.status==="已上線"&&!t.launched) t.launched=today();
       if(t.status!=="已上線") t.launched=null;
       save(); render();
     };
+    sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
     el.querySelector("[data-del]").onclick=()=>{ if(confirm("刪除這筆需求？")){ store.items=store.items.filter(x=>x.id!==t.id); save(); render(); } };
     el.querySelector("[data-edit]").onclick=()=>openEdit(t);
     if(manualDrag){
@@ -495,7 +536,7 @@
     return el;
   }
   function metaCell(k,v){return '<div class="m"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
-  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); if(store.sortMode==="manual"&&filter) filter=null; save(); render(); };
+  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); if(store.sortMode==="manual"){ filter=null; systemFilter=null; } save(); render(); };
   function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 
   /* ---------------- ADD / EDIT ---------------- */
