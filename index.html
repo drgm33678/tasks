@@ -306,9 +306,10 @@
   <section class="sect" id="backupSect">
     <div class="sect-head" style="cursor:default;flex-wrap:wrap;gap:10px">
       <div class="sect-ico backup"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div>
-      <div style="flex:1;min-width:160px"><div class="tt">備份與還原</div><div class="ts">把所有需求下載成 JSON 檔留底,或從備份檔還原(多一層保險)</div></div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn small" id="exportBtn">匯出備份</button>
+      <div style="flex:1;min-width:160px"><div class="tt">備份與還原</div><div class="ts">把備份直接傳到你的 Telegram(或下載留底),需要時再匯入還原</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn small" id="exportBtn">備份到 Telegram</button>
+        <button class="btn ghost small" id="downloadBtn">下載到電腦</button>
         <button class="btn ghost small" id="importBtn">匯入備份</button>
       </div>
     </div>
@@ -630,16 +631,41 @@
 
   /* ---------------- BACKUP / RESTORE ---------------- */
   function backupMsg(t,cls){ const m=$("backupMsg"); m.textContent=t; m.className="backup-msg "+(cls||""); }
-  $("exportBtn").onclick=()=>{
-    const data=JSON.stringify({ app:"requirement-tracker", exportedAt:new Date().toISOString(),
-      items:store.items, tg:store.tg, sortMode:store.sortMode }, null, 2);
-    const blob=new Blob([data],{type:"application/json"});
+  function backupJSON(){ return JSON.stringify({ app:"requirement-tracker", exportedAt:new Date().toISOString(),
+    items:store.items, tg:store.tg, sortMode:store.sortMode }, null, 2); }
+
+  // 備份到 Telegram(以文件形式上傳)
+  $("exportBtn").onclick=async ()=>{
+    const token=(store.tg.token||"").trim(), chat=(store.tg.chat||"").trim();
+    if(!token||!chat){
+      $("tgBody").classList.add("open");
+      backupMsg("請先在下方「Telegram 通知」設定 Bot Token 與 Chat ID","err");
+      $("tgHead").scrollIntoView({behavior:"smooth"}); return;
+    }
+    const btn=$("exportBtn"); btn.disabled=true; const label=btn.textContent; btn.textContent="傳送中…";
+    try{
+      const blob=new Blob([backupJSON()],{type:"application/json"});
+      const fd=new FormData();
+      fd.append("chat_id", chat);
+      fd.append("caption", "📦 需求追蹤備份 "+today()+"（共 "+store.items.length+" 筆）");
+      fd.append("document", blob, "需求追蹤備份-"+today()+".json");
+      const res=await fetch("https://api.telegram.org/bot"+token+"/sendDocument",{ method:"POST", body:fd });
+      const j=await res.json();
+      if(!j.ok) throw new Error(j.description||"傳送失敗");
+      backupMsg("備份已傳到 Telegram ✓（共 "+store.items.length+" 筆，檔案在你的對話裡）","ok");
+    }catch(e){ backupMsg("傳送失敗："+e.message,"err"); }
+    btn.disabled=false; btn.textContent=label;
+  };
+
+  // 下載到電腦（備用）
+  $("downloadBtn").onclick=()=>{
+    const blob=new Blob([backupJSON()],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
     a.href=url; a.download="需求追蹤備份-"+today()+".json";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
-    backupMsg("已匯出 "+store.items.length+" 筆需求 ✓（檔案含 Telegram 設定，請妥善保管）","ok");
+    backupMsg("已下載 "+store.items.length+" 筆需求 ✓（檔案含 Telegram 設定，請妥善保管）","ok");
   };
   $("importBtn").onclick=()=>$("importFile").click();
   $("importFile").onchange=e=>{
