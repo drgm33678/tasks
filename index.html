@@ -133,6 +133,10 @@
   .sect-ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto}
   .sect-ico.cloud{background:rgba(53,103,74,.13);color:var(--pine)}
   .sect-ico.tg{background:rgba(62,110,158,.13);color:var(--blue)}
+  .sect-ico.backup{background:rgba(168,132,46,.13);color:var(--gold)}
+  .backup-msg{font-size:12.5px;padding:12px 18px 14px;border-top:1px solid var(--line-soft);color:var(--ink-soft)}
+  .backup-msg.ok{color:var(--pine)} .backup-msg.err{color:var(--brick)}
+  .backup-msg:empty{display:none}
   .sect-head .tt{font-weight:600;font-size:15px}
   .sect-head .ts{font-size:12.5px;color:var(--ink-soft);margin-top:1px}
   .sect-state{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 10px;border-radius:20px}
@@ -296,6 +300,20 @@
         <div style="margin-top:9px">推送直接呼叫 Telegram API,不需自架伺服器。「自動每日摘要」需保持此頁開著;要在<b>電腦關機時也照送</b>,可搭配伺服器排程(我可幫你接 GitHub Actions,直接讀雲端資料每天推送)。</div>
       </div>
     </div>
+  </section>
+
+  <!-- Backup / Restore -->
+  <section class="sect" id="backupSect">
+    <div class="sect-head" style="cursor:default;flex-wrap:wrap;gap:10px">
+      <div class="sect-ico backup"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></div>
+      <div style="flex:1;min-width:160px"><div class="tt">備份與還原</div><div class="ts">把所有需求下載成 JSON 檔留底,或從備份檔還原(多一層保險)</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn small" id="exportBtn">匯出備份</button>
+        <button class="btn ghost small" id="importBtn">匯入備份</button>
+      </div>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+    <div id="backupMsg" class="backup-msg"></div>
   </section>
 
   <footer>REQUIREMENT TRACKER · 雲端同步 · 離線可用</footer>
@@ -608,6 +626,39 @@
     $("digestBtn").disabled=true; $("digestBtn").textContent="傳送中…";
     try{ await sendTg(buildDigest()); tgMsg("今日摘要已送出 ✓","ok"); }catch(e){ alert("傳送失敗:"+e.message); }
     $("digestBtn").disabled=false; $("digestBtn").textContent="傳送今日摘要";
+  };
+
+  /* ---------------- BACKUP / RESTORE ---------------- */
+  function backupMsg(t,cls){ const m=$("backupMsg"); m.textContent=t; m.className="backup-msg "+(cls||""); }
+  $("exportBtn").onclick=()=>{
+    const data=JSON.stringify({ app:"requirement-tracker", exportedAt:new Date().toISOString(),
+      items:store.items, tg:store.tg, sortMode:store.sortMode }, null, 2);
+    const blob=new Blob([data],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download="需求追蹤備份-"+today()+".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    backupMsg("已匯出 "+store.items.length+" 筆需求 ✓（檔案含 Telegram 設定，請妥善保管）","ok");
+  };
+  $("importBtn").onclick=()=>$("importFile").click();
+  $("importFile").onchange=e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const data=JSON.parse(reader.result);
+        if(!data||!Array.isArray(data.items)) throw new Error("檔案格式不正確，找不到需求資料");
+        if(!confirm("匯入將以備份內容覆蓋目前的 "+store.items.length+" 筆需求，確定嗎？")){ $("importFile").value=""; return; }
+        store.items=data.items;
+        if(data.tg) store.tg=Object.assign(store.tg,data.tg);
+        if(data.sortMode) store.sortMode=data.sortMode;
+        save(); render(); loadTgForm(); tgStateUI();
+        backupMsg("已匯入 "+store.items.length+" 筆需求 ✓"+(cloudReady?"（已同步到雲端）":""),"ok");
+      }catch(err){ backupMsg("匯入失敗："+err.message,"err"); }
+      $("importFile").value="";
+    };
+    reader.readAsText(file);
   };
 
   function tick(){
