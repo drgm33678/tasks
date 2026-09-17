@@ -1,4 +1,4 @@
-// 每日需求追蹤摘要 → Telegram
+// 每日排程項目摘要 → Telegram
 // 由 GitHub Actions 定時執行。所有密鑰從環境變數(GitHub Secrets)讀取。
 // 需要 Node 18+（GitHub runner 內建 fetch）。
 
@@ -65,7 +65,7 @@ async function main() {
   STATUSES.forEach(s => counts[s] = 0);
   items.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
 
-  let msg = `📋 <b>需求追蹤日報</b> (${today.slice(5)})\n`;
+  let msg = `📋 <b>排程項目日報</b> (${today.slice(5)})\n`;
   msg += `🟨待評估 ${counts["待評估"]} · 🟦開發中 ${counts["開發中"]} · 🟪待測試 ${counts["待測試"]} · 🟥阻塞 ${counts["阻塞"]} · 🟩已上線 ${counts["已上線"]}\n`;
 
   const soon = items
