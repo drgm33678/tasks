@@ -25,6 +25,29 @@ function daysLeft(due, today) {
 function tgEsc(s) {
   return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
+// 只允許 http/https 連結;沒寫協定的自動補 https://
+function safeUrl(u) {
+  u = String(u || "").trim();
+  if (!u) return "";
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = "https://" + u;
+  try {
+    const x = new URL(u);
+    return (x.protocol === "http:" || x.protocol === "https:") ? x.href : "";
+  } catch (e) { return ""; }
+}
+// 技術回復裡的 [顯示文字](網址) 轉成 Telegram 連結,其餘文字轉義(直接貼的網址 Telegram 會自動變連結)
+function tgLinkify(s) {
+  s = String(s == null ? "" : s);
+  const re = /\[([^\]\n]{1,200})\]\(([^)\s]+)\)/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(s))) {
+    const href = safeUrl(m[2]);
+    out += tgEsc(s.slice(last, m.index)) +
+      (href ? `<a href="${href.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">${tgEsc(m[1])}</a>` : tgEsc(m[0]));
+    last = m.index + m[0].length;
+  }
+  return out + tgEsc(s.slice(last));
+}
 function clip(s, n) {
   s = String(s || "");
   return s.length > n ? s.slice(0, n) + "…" : s;
@@ -85,7 +108,7 @@ async function main() {
   if (blocked.length) {
     msg += "\n🚧 <b>阻塞中</b>\n";
     blocked.forEach(t => {
-      const note = t.note ? " — " + tgEsc(clip(String(t.note).split("\n")[0], 200)) : "";
+      const note = t.note ? " — " + tgLinkify(clip(String(t.note).split("\n")[0], 200)) : "";
       msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))}${note}\n`;
     });
   }

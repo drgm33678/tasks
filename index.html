@@ -124,6 +124,8 @@
   .technote.gm{background:rgba(168,132,46,.08);border-color:rgba(168,132,46,.3)}
   .technote.gm b{color:#5a4712}
   .technote{white-space:pre-wrap;word-break:break-word}
+  .technote a,.card-desc a{text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+  .field .hint{font-size:11.5px;color:var(--ink-faint);margin-top:1px}
   .card-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
   .icon-btn{border:1px solid var(--line);background:none;color:var(--ink-soft);border-radius:7px;padding:5px 10px;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
   .icon-btn:hover{border-color:var(--ink-soft);color:var(--ink)}
@@ -243,14 +245,16 @@
         <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
         <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>開發中</option><option>待測試</option><option>阻塞</option><option>已上線</option></select></div>
         <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
-        <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea></div>
+        <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
+          <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
         <div class="field"><label>需求單位</label><input id="f_unit" placeholder="客服 / 風控 …"></div>
         <div class="field"><label>負責 PM</label><input id="f_pm" placeholder="技術對口"></div>
         <div class="field"><label>提交日期</label><input class="mono" id="f_submit" type="date"></div>
         <div class="field"><label>預計上線日 (Deadline)</label><input class="mono" id="f_due" type="date"></div>
         <div class="field full"><label>文件 (PRD / 設計稿連結)</label><input class="mono" id="f_doc" placeholder="https://…"></div>
         <div class="field full"><label>技術回復 (依賴 / 卡點)</label><textarea id="f_note" placeholder="是否依賴其他需求？目前卡在哪個環節？"></textarea></div>
-        <div class="field full"><label>GM 備註</label><textarea id="f_gmnote" placeholder="GM 的補充說明、決議或指示…"></textarea></div>
+        <div class="field full"><label>GM 備註</label><textarea id="f_gmnote" placeholder="GM 的補充說明、決議或指示…"></textarea>
+          <div class="hint">技術回復與 GM 備註同樣可加連結</div></div>
       </div>
       <div class="form-actions">
         <button class="btn ghost" id="cancelAdd">取消</button>
@@ -855,7 +859,7 @@
         '</select>'+
       '</div>'+
       '<div class="card-title">'+esc(t.title)+'</div>'+
-      (t.desc?'<div class="card-desc">'+esc(t.desc)+'</div>':'')+
+      (t.desc?'<div class="card-desc">'+linkify(t.desc)+'</div>':'')+
       '<div class="meta">'+
         '<div class="m span"><span class="k">平台</span><span class="v">'+esc(t.platform||"—")+'</span></div>'+
         metaCell("需求單位",esc(t.unit||"—"))+metaCell("負責 PM",esc(t.pm||"—"))+
@@ -864,8 +868,8 @@
         metaCell("剩餘天數",'<span class="days '+daysCls+'">'+daysHtml+'</span>')+
         metaCell("文件",!t.doc?"—":safeUrl(t.doc)?'<a href="'+esc(safeUrl(t.doc))+'" target="_blank" rel="noopener noreferrer">開啟 ↗</a>':'<span title="連結格式不安全,已停用">⚠ 連結無效</span>')+
       '</div>'+
-      (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
-      (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+esc(t.gmNote)+'</div>':'')+
+      (t.note?'<div class="technote"><b>技術回復</b>'+linkify(t.note)+'</div>':'')+
+      (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+linkify(t.gmNote)+'</div>':'')+
       '<div class="card-actions"><button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
       (openHistory.has(t.id)?historyHtml(t):'');
     const sel=el.querySelector("[data-status]");
@@ -931,7 +935,7 @@
     const clip=(s,n)=>{ s=String(s||""); return s.length>n?s.slice(0,n)+"…":s; };
     let msg="🚧 <b>需求阻塞</b>\n["+tgEsc(t.ticket||"—")+"] "+tgEsc(clip(t.title,150))+"\n";
     msg+="系統:"+tgEsc(t.system||"—")+" · 優先級:"+tgEsc(t.priority)+(t.pm?" · PM:"+tgEsc(t.pm):"");
-    if(t.note) msg+="\n卡點:"+tgEsc(clip(String(t.note).split("\n")[0],200));
+    if(t.note) msg+="\n卡點:"+tgLinkify(clip(String(t.note).split("\n")[0],200));
     msg+="\n操作人:"+tgEsc(me||"未署名");
     sendTg(msg).then(()=>toast("已推送阻塞警示到 Telegram")).catch(e=>toast("阻塞警示傳送失敗:"+e.message));
   }
@@ -944,6 +948,36 @@
     u=String(u||"").trim(); if(!u) return "";
     if(!/^[a-z][a-z0-9+.-]*:/i.test(u)) u="https://"+u;
     try{ const x=new URL(u); return (x.protocol==="http:"||x.protocol==="https:")?x.href:""; }catch(e){ return ""; }
+  }
+  // 文字裡的連結:支援 [顯示文字](網址) 和直接貼上的 http(s)://、www. 網址;其餘文字一律轉義
+  const LINK_RE=/\[([^\]\n]{1,200})\]\(([^)\s]+)\)|((?:https?:\/\/|www\.)[^\s<>"'，。、；：！？（）「」『』【】]+)/gi;
+  function linkify(s){
+    s=String(s==null?"":s); let out="", last=0, m;
+    LINK_RE.lastIndex=0;
+    while((m=LINK_RE.exec(s))){
+      let raw=m[0], label, url;
+      if(m[1]!==undefined){ label=m[1]; url=m[2]; }
+      else{
+        url=m[3].replace(/[.,;:!?)\]]+$/,""); // 句尾標點不算網址
+        raw=url; label=url; LINK_RE.lastIndex=m.index+raw.length;
+      }
+      const href=safeUrl(url);
+      out+=esc(s.slice(last,m.index));
+      out+=href?'<a href="'+esc(href)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>':esc(raw);
+      last=m.index+raw.length;
+    }
+    return out+esc(s.slice(last));
+  }
+  // Telegram 用:把 [文字](網址) 轉成 <a>,其餘轉義(直接貼的網址 Telegram 會自動變連結)
+  function tgLinkify(s){
+    s=String(s==null?"":s); let out="", last=0, m;
+    const re=/\[([^\]\n]{1,200})\]\(([^)\s]+)\)/g;
+    while((m=re.exec(s))){
+      const href=safeUrl(m[2]);
+      out+=tgEsc(s.slice(last,m.index))+(href?'<a href="'+esc(href)+'">'+tgEsc(m[1])+'</a>':tgEsc(m[0]));
+      last=m.index+m[0].length;
+    }
+    return out+tgEsc(s.slice(last));
   }
 
   /* ---------------- ADD / EDIT ---------------- */
@@ -1037,7 +1071,7 @@
     const soon=store.items.filter(t=>t.status!=="已上線"&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
     if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+" ("+tgEsc(t.priority)+")\n"; }); }
     const blocked=store.items.filter(t=>t.status==="阻塞");
-    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgEsc(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
+    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
     if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
     return msg;
   }
