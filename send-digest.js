@@ -21,6 +21,10 @@ function daysLeft(due, today) {
   const b = new Date(today + "T00:00:00Z");
   return Math.round((a - b) / 86400000);
 }
+// Telegram HTML 模式:使用者輸入的文字必須轉義 & < >,否則整則訊息會被拒收
+function tgEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
 
 async function main() {
   if (!BIN || !KEY || !TOKEN || !CHAT) {
@@ -53,7 +57,7 @@ async function main() {
     msg += "\n⚠️ <b>即將到期 / 逾期</b>\n";
     soon.forEach(({ t, d }) => {
       const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-      msg += `• [${t.ticket || "—"}] ${t.title} — ${tag} (${t.priority})\n`;
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(t.title)} — ${tag} (${tgEsc(t.priority)})\n`;
     });
   }
 
@@ -61,8 +65,8 @@ async function main() {
   if (blocked.length) {
     msg += "\n🚧 <b>阻塞中</b>\n";
     blocked.forEach(t => {
-      const note = t.note ? " — " + String(t.note).split("\n")[0] : "";
-      msg += `• [${t.ticket || "—"}] ${t.title}${note}\n`;
+      const note = t.note ? " — " + tgEsc(String(t.note).split("\n")[0]) : "";
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(t.title)}${note}\n`;
     });
   }
 
