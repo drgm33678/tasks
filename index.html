@@ -120,6 +120,9 @@
   .days.warn{color:var(--gold)} .days.over{color:var(--brick)} .days.ok{color:var(--pine)}
   .technote{margin-top:11px;padding:10px 12px;background:var(--paper-3);border-radius:9px;border:1px solid var(--line-soft);font-size:13px;color:var(--ink-soft)}
   .technote b{color:var(--ink);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .technote.gm{background:rgba(168,132,46,.08);border-color:rgba(168,132,46,.3)}
+  .technote.gm b{color:#5a4712}
+  .technote{white-space:pre-wrap;word-break:break-word}
   .card-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
   .icon-btn{border:1px solid var(--line);background:none;color:var(--ink-soft);border-radius:7px;padding:5px 10px;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
   .icon-btn:hover{border-color:var(--ink-soft);color:var(--ink)}
@@ -246,6 +249,7 @@
         <div class="field"><label>預計上線日 (Deadline)</label><input class="mono" id="f_due" type="date"></div>
         <div class="field full"><label>文件 (PRD / 設計稿連結)</label><input class="mono" id="f_doc" placeholder="https://…"></div>
         <div class="field full"><label>技術回復 (依賴 / 卡點)</label><textarea id="f_note" placeholder="是否依賴其他需求？目前卡在哪個環節？"></textarea></div>
+        <div class="field full"><label>GM 備註</label><textarea id="f_gmnote" placeholder="GM 的補充說明、決議或指示…"></textarea></div>
       </div>
       <div class="form-actions">
         <button class="btn ghost" id="cancelAdd">取消</button>
@@ -412,8 +416,8 @@
   let me=""; try{ me=localStorage.getItem(MEKEY)||""; }catch(e){}
 
   const FIELD_LABEL={ticket:"Ticket",priority:"優先級",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
-    category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復"};
-  const LONG_FIELDS={desc:1,note:1};
+    category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復",gmNote:"GM 備註"};
+  const LONG_FIELDS={desc:1,note:1,gmNote:1};
   function addHistory(t,changes){
     const at=Date.now(), by=me||"未署名";
     // _ft:每個欄位最後修改時間,多人同時改同一筆的不同欄位時,合併用
@@ -736,7 +740,7 @@
     if(fx.pm) items=items.filter(t=>(t.pm||"")===fx.pm);
     if(fx.unit) items=items.filter(t=>(t.unit||"")===fx.unit);
     const q=query.trim().toLowerCase();
-    if(q) items=items.filter(t=>[t.ticket,t.title,t.desc,t.note,t.platform,t.unit,t.pm,t.system,t.category].join("\n").toLowerCase().includes(q));
+    if(q) items=items.filter(t=>[t.ticket,t.title,t.desc,t.note,t.gmNote,t.platform,t.unit,t.pm,t.system,t.category].join("\n").toLowerCase().includes(q));
     const extraFiltered=!!(q||fx.priority||fx.category||fx.pm||fx.unit);
     $("fxClear").style.display=extraFiltered?"":"none";
     manualDrag = (store.sortMode==="manual" && !filter && !systemFilter && !extraFiltered);
@@ -860,6 +864,7 @@
         metaCell("文件",!t.doc?"—":safeUrl(t.doc)?'<a href="'+esc(safeUrl(t.doc))+'" target="_blank" rel="noopener noreferrer">開啟 ↗</a>':'<span title="連結格式不安全,已停用">⚠ 連結無效</span>')+
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
+      (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+esc(t.gmNote)+'</div>':'')+
       '<div class="card-actions"><button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
       (openHistory.has(t.id)?historyHtml(t):'');
     const sel=el.querySelector("[data-status]");
@@ -943,7 +948,7 @@
   /* ---------------- ADD / EDIT ---------------- */
   function openForm(){ $("addForm").classList.add("open"); $("addToggle").style.display="none"; }
   function closeForm(){ $("addForm").classList.remove("open"); $("addToggle").style.display="flex"; editingId=null; $("saveAdd").textContent="加入需求"; }
-  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{ clearForm(); openForm(); $("f_title").focus(); };
   $("cancelAdd").onclick=closeForm;
   function openEdit(t){
@@ -951,7 +956,7 @@
     $("f_ticket").value=t.ticket||""; $("f_priority").value=t.priority; $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
     $("f_desc").value=t.desc||""; $("f_category").value=t.category; $("f_status").value=t.status; $("f_unit").value=t.unit||"";
     $("f_pm").value=t.pm||""; $("f_submit").value=t.submit||today(); $("f_due").value=t.due||"";
-    $("f_doc").value=t.doc||""; $("f_note").value=t.note||"";
+    $("f_doc").value=t.doc||""; $("f_note").value=t.note||""; $("f_gmnote").value=t.gmNote||"";
     $("saveAdd").textContent="儲存變更"; openForm(); $("addForm").scrollIntoView({behavior:"smooth",block:"center"});
   }
   $("saveAdd").onclick=()=>{
@@ -961,7 +966,7 @@
     const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, system:$("f_system").value, platform:$("f_platform").value.trim(), title,
       desc:$("f_desc").value.trim(), category:$("f_category").value, status:$("f_status").value, unit:$("f_unit").value.trim(),
       pm:$("f_pm").value.trim(), submit:$("f_submit").value||today(), due:$("f_due").value||"",
-      doc, note:$("f_note").value.trim() };
+      doc, note:$("f_note").value.trim(), gmNote:$("f_gmnote").value.trim() };
     const editing=editingId&&store.items.find(x=>x.id===editingId);
     if(editingId&&!editing&&!confirm("這筆需求已被其他人刪除。要把你的內容當成新需求加入嗎？")) return;
     let target, becameBlocked=false;
