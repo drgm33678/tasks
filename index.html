@@ -334,14 +334,28 @@
   let store=loadLocal();
   let filter=null, systemFilter=null, notified={}, editingId=null, dragId=null, manualDrag=false;
   const SYSTEMS=["KR系統","DY系統","LJ系統"];
-  let cloudReady=false, pushTimer=null;
+  let cloudReady=false, pushTimer=null, connectTimer=null;
+  // dirtyVer:每次修改 +1,用來判斷上傳途中是否又有新修改
+  // store.pendingSync:有修改還沒成功寫入雲端(存在本機,關頁/斷線後重開仍記得要合併上傳)
+  let dirtyVer=0, pushing=false, retryDelay=0, renderPending=false;
+  const PULL_MS=180000;      // 每 3 分鐘從雲端拉一次別人的修改(分頁在前景時)
+  const TOMBSTONE_DAYS=60;   // 刪除紀錄保留天數,用來讓刪除能同步到其他人
 
   function loadLocal(){
-    try{const r=localStorage.getItem(LKEY); if(r) return JSON.parse(r);}catch(e){}
-    return {items:[], tg:{token:"",chat:"",time:"09:00",auto:false}, cloud:{bin:"",key:""}, sortMode:"auto"};
+    let s=null;
+    try{const r=localStorage.getItem(LKEY); if(r) s=JSON.parse(r);}catch(e){}
+    s=s||{items:[], tg:{token:"",chat:"",time:"09:00",auto:false}, cloud:{bin:"",key:""}, sortMode:"auto"};
+    s.items=s.items||[]; s.deleted=s.deleted||[]; s.tg=s.tg||{}; s.cloud=s.cloud||{bin:"",key:""};
+    if(s.cloudRev===undefined) s.cloudRev=null;
+    return s;
   }
   function saveLocal(){ try{localStorage.setItem(LKEY,JSON.stringify(store));}catch(e){} }
-  function save(){ saveLocal(); if(cloudReady) scheduleCloudPush(); }
+  function save(){
+    store.pendingSync=true; dirtyVer++; saveLocal();
+    if(cloudReady) scheduleCloudPush();
+  }
+  function hasUnsynced(){ return !!(cloudConfigured() && store.pendingSync); }
+  function touch(t){ t.updatedAt=Date.now(); }
 
   const pad=n=>String(n).padStart(2,"0");
   function ymd(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
@@ -349,7 +363,8 @@
   function daysLeft(due){ if(!due) return null; const a=new Date(due+"T00:00:00"),b=new Date(today()+"T00:00:00"); return Math.round((a-b)/DAY); }
 
   /* ---------------- CLOUD SYNC (JSONBin) ---------------- */
-  function cloudConfigured(){ return store.cloud.bin && store.cloud.key; }
+  const MSG_ON="已連線雲端 · 自動備份中 · 重開機不遺失";
+  function cloudConfigured(){ return !!(store.cloud.bin && store.cloud.key); }
   function cloudUI(state,msg){ // state: off | on | sync
     const bar=$("cloudbar"); bar.className="cloudbar "+state;
     $("cloudMsg").textContent=msg;
@@ -362,53 +377,165 @@
   function decSync(code){ try{ const s=decodeURIComponent(escape(atob(code.trim()))); const i=s.indexOf("|"); if(i<0) return null; return {bin:s.slice(0,i),key:s.slice(i+1)}; }catch(e){ return null; } }
   function showSyncCode(){ if(!cloudConfigured()) return; $("syncBox").style.display="block"; $("syncCodeOut").value=encSync(store.cloud.bin,store.cloud.key); }
 
+  function httpError(msg,status){ const e=new Error(msg+" ("+status+")"); e.status=status; return e; }
+  // 4xx(429 除外)代表 Key / Bin ID 有誤,重試也沒用
+  function isFatal(e){ return e.status>=400 && e.status<500 && e.status!==429; }
   async function cloudRead(){
     const r=await fetch(API+"/"+store.cloud.bin+"/latest",{headers:{"X-Master-Key":store.cloud.key}});
-    if(!r.ok) throw new Error("讀取失敗 ("+r.status+")");
-    const j=await r.json(); return j.record;
+    if(!r.ok) throw httpError("讀取失敗",r.status);
+    const j=await r.json(); return j.record||{};
   }
   async function cloudWrite(data){
     const r=await fetch(API+"/"+store.cloud.bin,{method:"PUT",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key},body:JSON.stringify(data)});
-    if(!r.ok) throw new Error("寫入失敗 ("+r.status+")");
+    if(!r.ok) throw httpError("寫入失敗",r.status);
     return r.json();
   }
   async function cloudCreate(data){
     const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key,"X-Bin-Name":"requirement-tracker","X-Bin-Private":"true"},body:JSON.stringify(data)});
-    if(!r.ok) throw new Error("建立失敗 ("+r.status+")");
+    if(!r.ok) throw httpError("建立失敗",r.status);
     const j=await r.json(); return j.metadata.id;
   }
 
-  function payload(){ return {items:store.items, tg:store.tg, sortMode:store.sortMode, _updated:new Date().toISOString()}; }
-  function adopt(rec){ if(rec&&Array.isArray(rec.items)){ store.items=rec.items; if(rec.tg) store.tg=Object.assign(store.tg,rec.tg); if(rec.sortMode) store.sortMode=rec.sortMode; saveLocal(); } }
-
-  function scheduleCloudPush(){
-    cloudUI("sync","同步中…");
-    clearTimeout(pushTimer);
-    pushTimer=setTimeout(async ()=>{
-      try{ await cloudWrite(payload()); cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失"); }
-      catch(e){ cloudUI("off","備份失敗:"+e.message+"(資料仍在本機,連線恢復後會重試)"); }
-    },1500);
+  function pruneTombstones(list){ const min=Date.now()-TOMBSTONE_DAYS*DAY; return (list||[]).filter(d=>d&&d.id&&d.at>=min); }
+  function payload(rev){
+    return {items:store.items, deleted:pruneTombstones(store.deleted), tg:store.tg, sortMode:store.sortMode,
+      sortAt:store.sortAt||0, orderAt:store.orderAt||0, _rev:rev, _updated:new Date().toISOString()};
+  }
+  // 完全採用雲端版本(本機沒有未上傳修改時使用)
+  function adopt(rec){
+    if(!rec||!Array.isArray(rec.items)) return;
+    store.items=rec.items; store.deleted=rec.deleted||[];
+    if(rec.tg) store.tg=Object.assign(store.tg,rec.tg);
+    if(rec.sortMode) store.sortMode=rec.sortMode;
+    store.sortAt=rec.sortAt||0; store.orderAt=rec.orderAt||0;
+    store.cloudRev=rec._rev||0; store.pendingSync=false; saveLocal();
+  }
+  // 合併雲端與本機:同一筆需求取「最後修改時間」較新的;刪除紀錄晚於修改時間的就刪掉
+  function mergeRemote(rec){
+    const del=new Map();
+    [...(rec.deleted||[]),...store.deleted].forEach(d=>{ if(d&&d.id&&(!del.has(d.id)||del.get(d.id)<d.at)) del.set(d.id,d.at); });
+    const byId=new Map();
+    const put=t=>{ if(!t||!t.id) return; const c=byId.get(t.id); if(!c||(t.updatedAt||0)>(c.updatedAt||0)) byId.set(t.id,t); };
+    (rec.items||[]).forEach(put); store.items.forEach(put);
+    for(const [id,t] of byId){ if(del.has(id)&&del.get(id)>=(t.updatedAt||0)) byId.delete(id); }
+    // 排序:誰的拖曳排序較新就用誰的順序,另一邊多出來的接在後面
+    const localFirst=(store.orderAt||0)>=(rec.orderAt||0);
+    const order=localFirst?[...store.items,...(rec.items||[])]:[...(rec.items||[]),...store.items];
+    const seen=new Set(), items=[];
+    order.forEach(t=>{ if(t&&byId.has(t.id)&&!seen.has(t.id)){ seen.add(t.id); items.push(byId.get(t.id)); } });
+    store.items=items;
+    store.deleted=pruneTombstones([...del].map(([id,at])=>({id,at})));
+    store.orderAt=Math.max(store.orderAt||0,rec.orderAt||0);
+    if(rec.sortMode&&(rec.sortAt||0)>(store.sortAt||0)){ store.sortMode=rec.sortMode; store.sortAt=rec.sortAt; }
+    if(rec.tg&&((rec.tg._at||0)>(store.tg._at||0))) store.tg=Object.assign(store.tg,rec.tg);
+  }
+  // 雲端資料變動後更新畫面;使用者正在操作時延後重畫
+  function afterRemoteChange(){
+    requestRender(); tgStateUI();
+    if(!$("tgBody").contains(document.activeElement)) loadTgForm();
   }
 
-  async function connectCloud(){
-    store.cloud.key=$("c_key").value.trim();
-    store.cloud.bin=$("c_bin").value.trim();
-    if(!store.cloud.key){ cMsg("請先填入 Master Key","err"); return; }
-    cMsg("連線中…",""); cloudUI("sync","連線中…");
+  function scheduleCloudPush(delay){
+    if(!retryDelay) cloudUI("sync","同步中…");
+    clearTimeout(pushTimer);
+    pushTimer=setTimeout(doCloudPush, delay==null?1500:delay);
+  }
+  // 上傳流程:先讀雲端 → 版本不同代表別人改過,先合併 → 寫回並把版本 +1
+  async function doCloudPush(){
+    if(!cloudReady||!hasUnsynced()) return;
+    if(pushing){ scheduleCloudPush(500); return; }
+    pushing=true; const ver=dirtyVer;
     try{
-      if(!store.cloud.bin){
-        // create new bin seeded with current local data
-        const id=await cloudCreate(payload());
-        store.cloud.bin=id; $("c_bin").value=id;
-        saveLocal(); cloudReady=true; showSyncCode();
-        cMsg("已建立雲端資料庫並上傳目前資料 ✓","ok");
-        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
+      const rec=await cloudRead();
+      const remoteRev=rec._rev||0;
+      const merged=remoteRev!==store.cloudRev;
+      if(merged) mergeRemote(rec);
+      const rev=remoteRev+1;
+      await cloudWrite(payload(rev));
+      store.cloudRev=rev;
+      if(dirtyVer===ver) store.pendingSync=false;
+      saveLocal(); retryDelay=0;
+      if(merged) afterRemoteChange();
+      if(hasUnsynced()) scheduleCloudPush(0); // 上傳期間又有新修改,再送一次
+      else cloudUI("on",merged?"已連線雲端 · 已合併其他人的修改":MSG_ON);
+    }catch(e){
+      if(isFatal(e)){ cloudReady=false; cloudUI("off","備份失敗:"+e.message+" — 請檢查 Key / Bin ID 後重新連線"); return; }
+      // 失敗自動重試:5s → 10s → 20s … 最長 60s
+      retryDelay=Math.min(retryDelay?retryDelay*2:5000,60000);
+      cloudUI("off","備份失敗:"+e.message+" — "+(retryDelay/1000)+" 秒後自動重試,請先不要關閉此頁或重開機");
+      clearTimeout(pushTimer); pushTimer=setTimeout(doCloudPush,retryDelay);
+    }finally{ pushing=false; }
+  }
+
+  // 連線雲端(開頁、網路恢復、手動連線共用);失敗會自動重試,期間的修改先存本機
+  async function connectExisting(){
+    clearTimeout(connectTimer);
+    if(!cloudConfigured()) return false;
+    cloudUI("sync","連線雲端中…");
+    try{
+      if(store.pendingSync){
+        cloudReady=true; retryDelay=0;
+        await doCloudPush(); // 內含讀取雲端 + 合併本機未上傳的修改
       }else{
         const rec=await cloudRead();
-        adopt(rec); saveLocal(); cloudReady=true; showSyncCode();
-        cMsg("已從雲端載入 ✓","ok"); render(); loadTgForm(); tgStateUI();
-        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
+        if(store.pendingSync){ cloudReady=true; retryDelay=0; await doCloudPush(); }
+        else{ adopt(rec); cloudReady=true; retryDelay=0; afterRemoteChange(); cloudUI("on",MSG_ON); }
       }
+      showSyncCode();
+      return cloudReady;
+    }catch(e){
+      cloudReady=false;
+      if(isFatal(e)){ cloudUI("off","雲端連線失敗:"+e.message+" — 請檢查 Key / Bin ID"); return false; }
+      retryDelay=Math.min(retryDelay?retryDelay*2:5000,60000);
+      cloudUI("off","雲端連線失敗:"+e.message+" — "+(retryDelay/1000)+" 秒後重試。期間的修改會先存本機,連上後自動合併上傳");
+      connectTimer=setTimeout(connectExisting,retryDelay);
+      return false;
+    }
+  }
+  // 定期拉取別人的修改;本機有未上傳修改時交給上傳流程合併
+  async function pullCloud(){
+    if(!cloudReady||pushing||hasUnsynced()||document.hidden) return;
+    const baseRev=store.cloudRev;
+    try{
+      const rec=await cloudRead();
+      if(pushing||hasUnsynced()||store.cloudRev!==baseRev) return;
+      if((rec._rev||0)!==store.cloudRev){ adopt(rec); afterRemoteChange(); }
+    }catch(e){}
+  }
+
+  // 網路恢復時立即重試
+  window.addEventListener("online",()=>{
+    retryDelay=0;
+    if(!cloudReady) connectExisting(); else if(hasUnsynced()) scheduleCloudPush(0);
+  });
+  // 還有修改沒備份到雲端時,關閉/重新整理頁面會跳出瀏覽器確認
+  window.addEventListener("beforeunload",e=>{ if(hasUnsynced()){ e.preventDefault(); e.returnValue=""; } });
+
+  async function connectCloud(){
+    const key=$("c_key").value.trim(), bin=$("c_bin").value.trim();
+    if(!key){ cMsg("請先填入 Master Key","err"); return; }
+    const prevBin=store.cloud.bin;
+    clearTimeout(pushTimer); clearTimeout(connectTimer); retryDelay=0; cloudReady=false;
+    store.cloud.key=key; store.cloud.bin=bin;
+    cMsg("連線中…",""); cloudUI("sync","連線中…");
+    try{
+      if(!bin){
+        // 建立新資料庫,以目前本機資料為起點
+        const id=await cloudCreate(payload(1));
+        store.cloud.bin=id; $("c_bin").value=id;
+        store.cloudRev=1; store.pendingSync=false; saveLocal();
+        cloudReady=true; showSyncCode();
+        cMsg("已建立雲端資料庫並上傳目前資料 ✓","ok");
+        cloudUI("on",MSG_ON);
+        return;
+      }
+      if(prevBin&&prevBin!==bin){ store.pendingSync=false; store.cloudRev=null; } // 換到另一個資料庫:不把舊資料混進去
+      else if(!prevBin){ store.cloudRev=null; } // 首次連線:本機若有未上傳資料會合併進雲端
+      saveLocal();
+      const ok=await connectExisting();
+      if(!ok) cMsg("連線失敗,詳見上方狀態列","err");
+      else if(hasUnsynced()) cMsg("已連線,本機修改上傳中…","");
+      else cMsg("已連線並同步 ✓","ok");
     }catch(e){ cloudReady=false; cMsg("失敗:"+e.message,"err"); cloudUI("off","連線失敗,請檢查 Key / Bin ID"); }
   }
   function cMsg(t,cls){ const m=$("cMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
@@ -417,9 +544,30 @@
   $("cloudSetupLink").onclick=()=>{ $("cloudBody").classList.add("open"); $("cloudSect").scrollIntoView({behavior:"smooth"}); };
   $("cConnect").onclick=connectCloud;
   $("cFromCode").onclick=()=>{ const d=decSync($("c_code").value); if(!d){ cMsg("同步碼無效","err"); return; } $("c_key").value=d.key; $("c_bin").value=d.bin; connectCloud(); };
-  $("cBackup").onclick=async ()=>{ if(!cloudConfigured()){cMsg("尚未連線雲端","err");return;} cMsg("備份中…",""); try{ await cloudWrite(payload()); cMsg("已備份到雲端 ✓","ok"); }catch(e){ cMsg("失敗:"+e.message,"err"); } };
-  $("cReload").onclick=async ()=>{ if(!cloudConfigured()){cMsg("尚未連線雲端","err");return;} cMsg("載入中…",""); try{ adopt(await cloudRead()); render(); loadTgForm(); tgStateUI(); cMsg("已重新載入 ✓","ok"); }catch(e){ cMsg("失敗:"+e.message,"err"); } };
+  $("cBackup").onclick=async ()=>{
+    if(!cloudReady){ cMsg("尚未連線雲端","err"); return; }
+    cMsg("備份中…",""); store.pendingSync=true; dirtyVer++; saveLocal();
+    await doCloudPush();
+    if(hasUnsynced()) cMsg("備份未完成,會自動重試","err"); else cMsg("已備份到雲端 ✓","ok");
+  };
+  $("cReload").onclick=async ()=>{
+    if(!cloudConfigured()){ cMsg("尚未連線雲端","err"); return; }
+    if(store.pendingSync&&!confirm("本機有尚未上傳到雲端的修改,重新載入會捨棄這些修改,確定嗎？")) return;
+    cMsg("載入中…","");
+    try{ clearTimeout(pushTimer); adopt(await cloudRead()); cloudReady=true; retryDelay=0; afterRemoteChange(); cloudUI("on",MSG_ON); cMsg("已重新載入 ✓","ok"); }
+    catch(e){ cMsg("失敗:"+e.message,"err"); }
+  };
   $("copySync").onclick=()=>{ const el=$("syncCodeOut"); el.select(); try{navigator.clipboard.writeText(el.value);}catch(e){document.execCommand("copy");} $("copySync").textContent="已複製"; setTimeout(()=>$("copySync").textContent="複製",1500); };
+
+  // 使用者正在操作狀態下拉或拖曳時,延後重畫,避免選單被收起、拖曳被中斷
+  function requestRender(){
+    const a=document.activeElement;
+    if(dragId||(a&&a.classList&&a.classList.contains("status-sel"))){ renderPending=true; return; }
+    renderPending=false; render();
+  }
+  document.addEventListener("focusout",e=>{
+    if(renderPending&&e.target.classList&&e.target.classList.contains("status-sel")) setTimeout(()=>{ if(renderPending) requestRender(); },0);
+  });
 
   /* ---------------- RENDER ---------------- */
   function render(){
@@ -523,24 +671,24 @@
         metaCell("提交日期",'<span class="mono">'+(t.submit||"—")+'</span>')+
         metaCell("預計上線",'<span class="mono">'+(t.due||"—")+'</span>')+
         metaCell("剩餘天數",'<span class="days '+daysCls+'">'+daysHtml+'</span>')+
-        metaCell("文件",t.doc?'<a href="'+esc(t.doc)+'" target="_blank" rel="noopener">開啟 ↗</a>':"—")+
+        metaCell("文件",!t.doc?"—":safeUrl(t.doc)?'<a href="'+esc(safeUrl(t.doc))+'" target="_blank" rel="noopener noreferrer">開啟 ↗</a>':'<span title="連結格式不安全,已停用">⚠ 連結無效</span>')+
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
       '<div class="card-actions"><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>';
     const sel=el.querySelector("[data-status]");
     sel.onchange=()=>{
-      t.status=sel.value;
+      t.status=sel.value; touch(t);
       if(t.status==="已上線"&&!t.launched) t.launched=today();
       if(t.status!=="已上線") t.launched=null;
       save(); render();
     };
     sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
-    el.querySelector("[data-del]").onclick=()=>{ if(confirm("刪除這筆需求？")){ store.items=store.items.filter(x=>x.id!==t.id); save(); render(); } };
+    el.querySelector("[data-del]").onclick=()=>{ if(confirm("刪除這筆需求？")){ store.items=store.items.filter(x=>x.id!==t.id); store.deleted.push({id:t.id,at:Date.now()}); save(); render(); } };
     el.querySelector("[data-edit]").onclick=()=>openEdit(t);
     if(manualDrag){
       el.draggable=true;
       el.addEventListener("dragstart",e=>{ dragId=t.id; el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
-      el.addEventListener("dragend",()=>{ dragId=null; document.querySelectorAll(".card").forEach(c=>c.classList.remove("dragging","dragover")); });
+      el.addEventListener("dragend",()=>{ dragId=null; document.querySelectorAll(".card").forEach(c=>c.classList.remove("dragging","dragover")); if(renderPending) requestRender(); });
       el.addEventListener("dragover",e=>{ e.preventDefault(); if(dragId&&dragId!==t.id) el.classList.add("dragover"); });
       el.addEventListener("dragleave",()=>el.classList.remove("dragover"));
       el.addEventListener("drop",e=>{
@@ -548,15 +696,23 @@
         if(!dragId||dragId===t.id) return;
         const arr=store.items, from=arr.findIndex(x=>x.id===dragId), to=arr.findIndex(x=>x.id===t.id);
         if(from<0||to<0) return;
-        const [moved]=arr.splice(from,1); arr.splice(to,0,moved);
+        const [moved]=arr.splice(from,1); arr.splice(to,0,moved); store.orderAt=Date.now(); dragId=null;
         save(); render();
       });
     }
     return el;
   }
   function metaCell(k,v){return '<div class="m"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
-  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); if(store.sortMode==="manual"){ filter=null; systemFilter=null; } save(); render(); };
+  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); store.sortAt=Date.now(); if(store.sortMode==="manual"){ filter=null; systemFilter=null; } save(); render(); };
   function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+  // Telegram HTML 模式只需轉義 & < >;未轉義時整則訊息會被拒收
+  function tgEsc(s){return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+  // 文件連結只允許 http/https,擋掉 javascript: 等危險連結;沒寫協定的自動補 https://
+  function safeUrl(u){
+    u=String(u||"").trim(); if(!u) return "";
+    if(!/^[a-z][a-z0-9+.-]*:/i.test(u)) u="https://"+u;
+    try{ const x=new URL(u); return (x.protocol==="http:"||x.protocol==="https:")?x.href:""; }catch(e){ return ""; }
+  }
 
   /* ---------------- ADD / EDIT ---------------- */
   function openForm(){ $("addForm").classList.add("open"); $("addToggle").style.display="none"; }
@@ -574,13 +730,17 @@
   }
   $("saveAdd").onclick=()=>{
     const title=$("f_title").value.trim(); if(!title){ $("f_title").focus(); return; }
+    const docRaw=$("f_doc").value.trim(), doc=safeUrl(docRaw);
+    if(docRaw&&!doc){ alert("文件連結只接受 http:// 或 https:// 開頭的網址"); $("f_doc").focus(); return; }
     const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, system:$("f_system").value, platform:$("f_platform").value.trim(), title,
       desc:$("f_desc").value.trim(), category:$("f_category").value, status:$("f_status").value, unit:$("f_unit").value.trim(),
       pm:$("f_pm").value.trim(), submit:$("f_submit").value||today(), due:$("f_due").value||"",
-      doc:$("f_doc").value.trim(), note:$("f_note").value.trim() };
-    if(editingId){ const t=store.items.find(x=>x.id===editingId); Object.assign(t,data);
+      doc, note:$("f_note").value.trim() };
+    const editing=editingId&&store.items.find(x=>x.id===editingId);
+    if(editingId&&!editing&&!confirm("這筆需求已被其他人刪除。要把你的內容當成新需求加入嗎？")) return;
+    if(editing){ const t=editing; Object.assign(t,data); touch(t);
       if(t.status==="已上線"&&!t.launched) t.launched=today(); if(t.status!=="已上線") t.launched=null;
-    }else{ data.id=Date.now()+"-"+Math.random().toString(36).slice(2,6); data.launched=data.status==="已上線"?today():null; store.items.push(data); }
+    }else{ data.id=Date.now()+"-"+Math.random().toString(36).slice(2,6); data.launched=data.status==="已上線"?today():null; touch(data); store.items.push(data); }
     save(); closeForm(); render();
   };
 
@@ -592,7 +752,7 @@
     else{ s.textContent="未設定"; s.className="sect-state st-off"; } }
   function loadTgForm(){ $("tg_token").value=store.tg.token; $("tg_chat").value=store.tg.chat; $("tg_time").value=store.tg.time||"09:00"; $("tg_auto").checked=!!store.tg.auto; }
   $("tgHead").onclick=()=>$("tgBody").classList.toggle("open");
-  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
+  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; store.tg._at=Date.now(); save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
   function tgMsg(t,cls){ const m=$("tgMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
   async function sendTg(text){
     const token=($("tg_token").value||store.tg.token).trim(), chat=($("tg_chat").value||store.tg.chat).trim();
@@ -607,7 +767,7 @@
       let token=$("tg_token").value.trim(); if(!token){ tgMsg("請先填寫 Bot Token","err"); return; }
       if(!$("tg_chat").value.trim()){ const c=await tryDetectChat(token); if(c){ $("tg_chat").value=c; tgMsg("已自動抓到 Chat ID:"+c,"ok"); } else{ tgMsg("抓不到 Chat ID,請先對機器人傳一句話,或用 @userinfobot 取得","err"); return; } }
       await sendTg("✅ <b>需求追蹤</b> 連線成功\n之後的每日摘要與提醒都會送到這裡。");
-      store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); save(); tgStateUI();
+      store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg._at=Date.now(); save(); tgStateUI();
       tgMsg("測試訊息已送出,請查看 Telegram ✓","ok");
     }catch(e){ tgMsg("失敗:"+e.message,"err"); }
   };
@@ -616,9 +776,9 @@
     let msg="📋 <b>需求追蹤日報</b> ("+today().slice(5)+")\n";
     msg+="🟨待評估 "+counts["待評估"]+" · 🟦開發中 "+counts["開發中"]+" · 🟪待測試 "+counts["待測試"]+" · 🟥阻塞 "+counts["阻塞"]+" · 🟩已上線 "+counts["已上線"]+"\n";
     const soon=store.items.filter(t=>t.status!=="已上線"&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
-    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+(t.ticket||"—")+"] "+t.title+" — "+tag+" ("+t.priority+")\n"; }); }
+    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(t.title)+" — "+tag+" ("+tgEsc(t.priority)+")\n"; }); }
     const blocked=store.items.filter(t=>t.status==="阻塞");
-    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+(t.ticket||"—")+"] "+t.title+(t.note?" — "+t.note.split("\n")[0]:"")+"\n"; }); }
+    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(t.title)+(t.note?" — "+tgEsc(String(t.note).split("\n")[0]):"")+"\n"; }); }
     if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
     return msg;
   }
@@ -631,8 +791,11 @@
 
   /* ---------------- BACKUP / RESTORE ---------------- */
   function backupMsg(t,cls){ const m=$("backupMsg"); m.textContent=t; m.className="backup-msg "+(cls||""); }
-  function backupJSON(){ return JSON.stringify({ app:"requirement-tracker", exportedAt:new Date().toISOString(),
-    items:store.items, tg:store.tg, sortMode:store.sortMode }, null, 2); }
+  // 備份檔不含 Bot Token(備份會傳到群組,避免成員拿到 Token);匯入時沿用本機已設定的 Token
+  function backupJSON(){
+    const tg={chat:store.tg.chat, time:store.tg.time, auto:store.tg.auto};
+    return JSON.stringify({ app:"requirement-tracker", exportedAt:new Date().toISOString(),
+      items:store.items, tg, sortMode:store.sortMode }, null, 2); }
 
   // 備份到 Telegram(以文件形式上傳)
   $("exportBtn").onclick=async ()=>{
@@ -665,7 +828,7 @@
     a.href=url; a.download="需求追蹤備份-"+today()+".json";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
-    backupMsg("已下載 "+store.items.length+" 筆需求 ✓（檔案含 Telegram 設定，請妥善保管）","ok");
+    backupMsg("已下載 "+store.items.length+" 筆需求 ✓（檔案不含 Bot Token）","ok");
   };
   $("importBtn").onclick=()=>$("importFile").click();
   $("importFile").onchange=e=>{
@@ -676,9 +839,15 @@
         const data=JSON.parse(reader.result);
         if(!data||!Array.isArray(data.items)) throw new Error("檔案格式不正確，找不到需求資料");
         if(!confirm("匯入將以備份內容覆蓋目前的 "+store.items.length+" 筆需求，確定嗎？")){ $("importFile").value=""; return; }
-        store.items=data.items;
-        if(data.tg) store.tg=Object.assign(store.tg,data.tg);
-        if(data.sortMode) store.sortMode=data.sortMode;
+        // 匯入=還原:備份裡的每筆視為最新修改,目前有但備份沒有的記為刪除,這樣同步時不會被其他人的舊資料蓋回來
+        const now=Date.now();
+        const items=data.items.map(t=>Object.assign({},t,{id:t.id||(now+"-"+Math.random().toString(36).slice(2,6)),updatedAt:now}));
+        const ids=new Set(items.map(t=>t.id));
+        store.items.forEach(t=>{ if(!ids.has(t.id)) store.deleted.push({id:t.id,at:now}); });
+        store.deleted=store.deleted.filter(d=>!ids.has(d.id));
+        store.items=items; store.orderAt=now;
+        if(data.tg){ const {token, ...rest}=data.tg; store.tg=Object.assign(store.tg,rest,{_at:now}); if(!store.tg.token&&token) store.tg.token=token; }
+        if(data.sortMode){ store.sortMode=data.sortMode; store.sortAt=now; }
         save(); render(); loadTgForm(); tgStateUI();
         backupMsg("已匯入 "+store.items.length+" 筆需求 ✓"+(cloudReady?"（已同步到雲端）":""),"ok");
       }catch(err){ backupMsg("匯入失敗："+err.message,"err"); }
@@ -687,8 +856,11 @@
     reader.readAsText(file);
   };
 
+  // 只在跨日時重畫(剩餘天數會變),不再每 20 秒整頁重畫
+  let lastDay=today();
   function tick(){
-    render();
+    if(today()!==lastDay){ lastDay=today(); requestRender(); }
+    else if(renderPending) requestRender(); // 補畫先前因操作中而延後的更新
     if(!store.tg.auto||!tgConfigured()) return;
     const now=new Date(); const hm=pad(now.getHours())+":"+pad(now.getMinutes()); const stamp=today()+" "+hm;
     if(notified._stamp!==stamp) notified={_stamp:stamp};
@@ -699,21 +871,21 @@
   async function init(){
     // adopt sync code from URL hash, e.g. #sync=XXXX
     const m=location.hash.match(/sync=([^&]+)/);
-    if(m){ const d=decSync(decodeURIComponent(m[1])); if(d){ store.cloud=d; saveLocal(); } }
+    if(m){ const d=decSync(decodeURIComponent(m[1])); if(d){
+      if(d.bin!==store.cloud.bin){ store.pendingSync=false; store.cloudRev=null; } // 換資料庫:不混入舊資料
+      store.cloud=d; saveLocal(); } }
     loadTgForm(); render();
 
     if(cloudConfigured()){
       $("c_key").value=store.cloud.key; $("c_bin").value=store.cloud.bin;
-      cloudUI("sync","連線雲端中…");
-      try{ adopt(await cloudRead()); cloudReady=true; render(); loadTgForm(); tgStateUI(); showSyncCode();
-        cloudUI("on","已連線雲端 · 自動備份中 · 重開機不遺失");
-      }catch(e){ cloudReady=false; cloudUI("off","雲端連線失敗,使用本機資料:"+e.message); }
+      await connectExisting(); // 失敗會自動重試;期間的修改先存本機,連上後合併上傳
     }else{
       cloudUI("off","未連線雲端 — 此裝置重開機資料會消失,請先設定雲端同步");
     }
     tgStateUI();
     setInterval(tick,20000);
-    document.addEventListener("visibilitychange",()=>{ if(!document.hidden) render(); });
+    setInterval(pullCloud,PULL_MS);
+    document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ tick(); pullCloud(); } });
   }
   init();
 })();
