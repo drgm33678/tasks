@@ -25,9 +25,9 @@
     color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.5;
     padding:22px 18px 90px;
   }
-  .shell{display:flex;gap:22px;max-width:1080px;margin:0 auto;align-items:flex-start}
+  .shell{display:flex;gap:22px;max-width:1080px;margin:0 auto;align-items:flex-start;transition:max-width .25s ease}
   .wrap{flex:1;min-width:0;max-width:860px}
-  .sidebar{width:184px;flex:0 0 184px;position:sticky;top:22px;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 12px;box-shadow:var(--shadow)}
+  .sidebar{background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 12px;box-shadow:var(--shadow)}
   .side-title{font-family:inherit;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);padding:2px 8px 10px}
   .side-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:9px;padding:9px 10px;margin-bottom:3px;cursor:pointer;font-family:inherit;font-size:13.5px;color:var(--ink);transition:.15s}
   .side-item:hover{background:var(--paper-3)}
@@ -69,11 +69,25 @@
   .alertbar{display:none;align-items:center;gap:14px;background:rgba(180,68,46,.07);border:1px solid rgba(180,68,46,.25);border-radius:12px;padding:11px 16px;margin-bottom:18px;font-size:13.5px;color:var(--brick)}
   .alertbar.show{display:flex} .alertbar b{font-weight:600}
 
-  .addwrap{margin-bottom:18px}
   .addtoggle{width:100%;text-align:left;background:var(--paper-2);border:1px dashed var(--line);border-radius:12px;padding:13px 16px;cursor:pointer;font-family:inherit;font-size:14.5px;color:var(--ink-soft);display:flex;align-items:center;gap:9px;transition:.15s}
   .addtoggle:hover{border-color:var(--pine);color:var(--pine)} .addtoggle .plus{font-size:18px;line-height:1}
-  .addform{display:none;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-top:10px;box-shadow:var(--shadow)}
+  .addtoggle.active{border-style:solid;border-color:rgba(53,103,74,.45);background:rgba(53,103,74,.08);color:var(--pine-deep);font-weight:600}
+  .addform{display:none;background:var(--paper-2);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
   .addform.open{display:block}
+  .addform-title{font-weight:700;font-size:16px;margin-bottom:14px}
+
+  /* 版面:左欄(系統 + 新增需求)固定不捲動;排程項目平時置中;
+     表單打開時右側多出一欄,整體變寬,排程項目往左移 */
+  .leftcol{width:184px;flex:0 0 184px;position:sticky;top:22px;display:flex;flex-direction:column;gap:12px}
+  .shell.form-open{max-width:1500px}
+  .addcol{display:none;width:400px;flex:0 0 400px;position:sticky;top:22px;max-height:calc(100vh - 44px);overflow-y:auto;overscroll-behavior:contain;border-radius:var(--radius)}
+  .addcol.open{display:block}
+  .addcol .form-actions{position:sticky;bottom:0;margin:16px -18px -18px;padding:12px 18px;background:var(--paper-2);border-top:1px solid var(--line-soft);border-radius:0 0 var(--radius) var(--radius)}
+  /* 螢幕不夠寬放三欄時:表單改成從右側滑出、蓋在清單上 */
+  @media (max-width:1279px){
+    .shell.form-open{max-width:1080px}
+    .addcol.open{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);max-height:none;z-index:40;background:var(--paper);padding:16px;box-shadow:-12px 0 40px -12px rgba(35,32,27,.4);border-radius:0}
+  }
   .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
   .field{display:flex;flex-direction:column;gap:5px}
   .field.full{grid-column:1 / -1}
@@ -203,15 +217,19 @@
   .toast-act:empty{display:none}
 
   footer{text-align:center;margin-top:32px;font-family:inherit;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft);opacity:.7}
-  @media (max-width:820px){.shell{flex-direction:column;gap:14px}.sidebar{width:100%;flex:0 0 auto;position:static;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.side-title{padding:2px 6px;width:100%}.side-item{width:auto;flex:0 0 auto;margin-bottom:0}}
+  @media (max-width:820px){.shell{flex-direction:column;gap:14px}.leftcol{width:100%;flex:0 0 auto;position:static}.sidebar{width:100%;flex:0 0 auto;position:static;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.side-title{padding:2px 6px;width:100%}.side-item{width:auto;flex:0 0 auto;margin-bottom:0}}
   @media (max-width:560px){.fgrid{grid-template-columns:1fr}.brand h1{font-size:25px}.pchip{min-width:calc(50% - 4px)}.meta{grid-template-columns:repeat(2,1fr)}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
   :focus-visible{outline:2px solid var(--pine);outline-offset:2px}
 </style>
 </head>
 <body>
-<div class="shell">
-  <aside class="sidebar" id="sidebar"></aside>
+<div class="shell" id="shell">
+  <!-- 左側固定欄:系統分類 + 新增需求 -->
+  <div class="leftcol">
+    <aside class="sidebar" id="sidebar"></aside>
+    <button class="addtoggle" id="addToggle"><span class="plus">＋</span> 新增需求</button>
+  </div>
   <div class="wrap">
 
   <div class="cloudbar off" id="cloudbar">
@@ -233,35 +251,6 @@
 
   <div class="pipeline" id="pipeline"></div>
   <div class="alertbar" id="alertbar"></div>
-
-  <div class="addwrap">
-    <button class="addtoggle" id="addToggle"><span class="plus">＋</span> 新增需求</button>
-    <div class="addform" id="addForm">
-      <div class="fgrid">
-        <div class="field"><label>ID / Ticket</label><input class="mono" id="f_ticket" placeholder="JIRA-123 / TRELLO 編號"></div>
-        <div class="field"><label>優先級</label><select id="f_priority"><option value="P0">P0 · 立即處理</option><option value="P1" selected>P1 · 本版必備</option><option value="P2">P2 · 可延後</option></select></div>
-        <div class="field"><label>系統</label><select id="f_system"><option>KR系統</option><option>DY系統</option><option>LJ系統</option></select></div>
-        <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
-        <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
-        <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>開發中</option><option>待測試</option><option>阻塞</option><option>已上線</option></select></div>
-        <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
-        <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
-          <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
-        <div class="field"><label>需求單位</label><input id="f_unit" placeholder="客服 / 風控 …"></div>
-        <div class="field"><label>負責 PM</label><input id="f_pm" placeholder="技術對口"></div>
-        <div class="field"><label>提交日期</label><input class="mono" id="f_submit" type="date"></div>
-        <div class="field"><label>預計上線日 (Deadline)</label><input class="mono" id="f_due" type="date"></div>
-        <div class="field full"><label>文件 (PRD / 設計稿連結)</label><input class="mono" id="f_doc" placeholder="https://…"></div>
-        <div class="field full"><label>技術回復 (依賴 / 卡點)</label><textarea id="f_note" placeholder="是否依賴其他需求？目前卡在哪個環節？"></textarea></div>
-        <div class="field full"><label>GM 備註</label><textarea id="f_gmnote" placeholder="GM 的補充說明、決議或指示…"></textarea>
-          <div class="hint">技術回復與 GM 備註同樣可加連結</div></div>
-      </div>
-      <div class="form-actions">
-        <button class="btn ghost" id="cancelAdd">取消</button>
-        <button class="btn" id="saveAdd">加入需求</button>
-      </div>
-    </div>
-  </div>
 
   <div class="filterbar">
     <input id="q" type="search" placeholder="搜尋 標題 / Ticket / 描述 / 技術回復…" autocomplete="off">
@@ -389,6 +378,36 @@
 
   <footer>排程項目 · 雲端同步 · 離線可用</footer>
   </div>
+
+  <!-- 右側表單欄:點「新增需求」或「編輯」才展開 -->
+  <aside class="addcol" id="addCol">
+    <div class="addform" id="addForm">
+      <div class="addform-title" id="addFormTitle">新增需求</div>
+      <div class="fgrid">
+        <div class="field"><label>ID / Ticket</label><input class="mono" id="f_ticket" placeholder="JIRA-123 / TRELLO 編號"></div>
+        <div class="field"><label>優先級</label><select id="f_priority"><option value="P0">P0 · 立即處理</option><option value="P1" selected>P1 · 本版必備</option><option value="P2">P2 · 可延後</option></select></div>
+        <div class="field"><label>系統</label><select id="f_system"><option>KR系統</option><option>DY系統</option><option>LJ系統</option></select></div>
+        <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
+        <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
+        <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>開發中</option><option>待測試</option><option>阻塞</option><option>已上線</option></select></div>
+        <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
+        <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
+          <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
+        <div class="field"><label>需求單位</label><input id="f_unit" placeholder="客服 / 風控 …"></div>
+        <div class="field"><label>負責 PM</label><input id="f_pm" placeholder="技術對口"></div>
+        <div class="field"><label>提交日期</label><input class="mono" id="f_submit" type="date"></div>
+        <div class="field"><label>預計上線日 (Deadline)</label><input class="mono" id="f_due" type="date"></div>
+        <div class="field full"><label>文件 (PRD / 設計稿連結)</label><input class="mono" id="f_doc" placeholder="https://…"></div>
+        <div class="field full"><label>技術回復 (依賴 / 卡點)</label><textarea id="f_note" placeholder="是否依賴其他需求？目前卡在哪個環節？"></textarea></div>
+        <div class="field full"><label>GM 備註</label><textarea id="f_gmnote" placeholder="GM 的補充說明、決議或指示…"></textarea>
+          <div class="hint">技術回復與 GM 備註同樣可加連結</div></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn ghost" id="cancelAdd">取消</button>
+        <button class="btn" id="saveAdd">加入需求</button>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <script>
@@ -981,10 +1000,28 @@
   }
 
   /* ---------------- ADD / EDIT ---------------- */
-  function openForm(){ $("addForm").classList.add("open"); $("addToggle").style.display="none"; }
-  function closeForm(){ $("addForm").classList.remove("open"); $("addToggle").style.display="flex"; editingId=null; $("saveAdd").textContent="加入需求"; }
+  // 打開表單:右側欄展開、排程項目往左移;左側「新增需求」按鈕保持可見並標示為使用中
+  function formOpen(){ return $("addForm").classList.contains("open"); }
+  function openForm(editing){
+    $("addForm").classList.add("open"); $("addCol").classList.add("open"); $("shell").classList.add("form-open");
+    $("addToggle").classList.toggle("active",!editing);
+    $("addFormTitle").textContent=editing?"編輯需求":"新增需求";
+    $("addCol").scrollTop=0;
+  }
+  function closeForm(){
+    $("addForm").classList.remove("open"); $("addCol").classList.remove("open"); $("shell").classList.remove("form-open");
+    $("addToggle").classList.remove("active");
+    editingId=null; $("saveAdd").textContent="加入需求";
+  }
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
   function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
-  $("addToggle").onclick=()=>{ clearForm(); openForm(); $("f_title").focus(); };
+  $("addToggle").onclick=()=>{
+    // 已在新增中:不清空已填的內容,只把游標移回標題
+    if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
+    if(formOpen()&&editingId&&!confirm("正在編輯的內容尚未儲存,要放棄並改為新增需求嗎？")) return;
+    editingId=null; $("saveAdd").textContent="加入需求";
+    clearForm(); openForm(false); $("f_title").focus({preventScroll:true});
+  };
   $("cancelAdd").onclick=closeForm;
   function openEdit(t){
     editingId=t.id;
@@ -992,7 +1029,7 @@
     $("f_desc").value=t.desc||""; $("f_category").value=t.category; $("f_status").value=t.status; $("f_unit").value=t.unit||"";
     $("f_pm").value=t.pm||""; $("f_submit").value=t.submit||today(); $("f_due").value=t.due||"";
     $("f_doc").value=t.doc||""; $("f_note").value=t.note||""; $("f_gmnote").value=t.gmNote||"";
-    $("saveAdd").textContent="儲存變更"; openForm(); $("addForm").scrollIntoView({behavior:"smooth",block:"center"});
+    $("saveAdd").textContent="儲存變更"; openForm(true); $("f_title").focus({preventScroll:true});
   }
   $("saveAdd").onclick=()=>{
     const title=$("f_title").value.trim(); if(!title){ $("f_title").focus(); return; }
