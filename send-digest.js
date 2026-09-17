@@ -9,6 +9,7 @@ const CHAT  = process.env.TELEGRAM_CHAT_ID;
 const TZ_OFFSET = 8; // 台灣 UTC+8。若在其他時區，改成你的時差。
 
 const STATUSES = ["待評估", "開發中", "待測試", "阻塞", "已上線"];
+const PRI_LABEL = { P0: "P0", P1: "P1", P2: "P2", TBD: "不確定" };
 
 function localToday() {
   // 把 UTC 時間平移到當地時區，取 YYYY-MM-DD
@@ -100,7 +101,7 @@ async function main() {
     msg += "\n⚠️ <b>即將到期 / 逾期</b>\n";
     soon.forEach(({ t, d }) => {
       const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag} (${tgEsc(t.priority)})\n`;
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag} (${tgEsc(PRI_LABEL[t.priority] || "不確定")})\n`;
     });
   }
 
