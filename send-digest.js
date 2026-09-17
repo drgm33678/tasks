@@ -25,6 +25,26 @@ function daysLeft(due, today) {
 function tgEsc(s) {
   return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
+function clip(s, n) {
+  s = String(s || "");
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+// Telegram 單則上限 4096 字:依換行拆成多段(每行的 HTML 標籤都在同一行內開合,拆行不會弄壞格式)
+function splitTg(text, max = 3900) {
+  const parts = [];
+  let cur = "";
+  for (let line of String(text).split("\n")) {
+    while (line.length > max) {
+      if (cur) { parts.push(cur); cur = ""; }
+      parts.push(line.slice(0, max));
+      line = line.slice(max);
+    }
+    if (cur.length + line.length + 1 > max) { parts.push(cur); cur = ""; }
+    cur += (cur ? "\n" : "") + line;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
 
 async function main() {
   if (!BIN || !KEY || !TOKEN || !CHAT) {
@@ -57,7 +77,7 @@ async function main() {
     msg += "\n⚠️ <b>即將到期 / 逾期</b>\n";
     soon.forEach(({ t, d }) => {
       const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(t.title)} — ${tag} (${tgEsc(t.priority)})\n`;
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag} (${tgEsc(t.priority)})\n`;
     });
   }
 
@@ -65,28 +85,31 @@ async function main() {
   if (blocked.length) {
     msg += "\n🚧 <b>阻塞中</b>\n";
     blocked.forEach(t => {
-      const note = t.note ? " — " + tgEsc(String(t.note).split("\n")[0]) : "";
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(t.title)}${note}\n`;
+      const note = t.note ? " — " + tgEsc(clip(String(t.note).split("\n")[0], 200)) : "";
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))}${note}\n`;
     });
   }
 
   if (!soon.length && !blocked.length) msg += "\n✅ 沒有逾期或阻塞，一切順利。";
 
-  // 3) 發送到 Telegram
-  const tg = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: CHAT,
-      text: msg,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    })
-  });
-  const tj = await tg.json();
-  if (!tj.ok) throw new Error("Telegram 發送失敗：" + (tj.description || JSON.stringify(tj)));
+  // 3) 發送到 Telegram(太長時拆成多則依序送出)
+  const parts = splitTg(msg);
+  for (const part of parts) {
+    const tg = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: CHAT,
+        text: part,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      })
+    });
+    const tj = await tg.json();
+    if (!tj.ok) throw new Error("Telegram 發送失敗：" + (tj.description || JSON.stringify(tj)));
+  }
 
-  console.log("已發送日報，共 " + items.length + " 筆需求。");
+  console.log("已發送日報，共 " + items.length + " 筆需求，分 " + parts.length + " 則。");
 }
 
 main().catch(e => { console.error(e.message || e); process.exit(1); });

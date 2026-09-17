@@ -160,6 +160,42 @@
   .track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
   .switch input:checked + .track{background:var(--pine)} .switch input:checked + .track::after{left:18px}
 
+  /* search & filters */
+  .top-actions{align-items:center;flex-wrap:wrap}
+  .me-field{display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft)}
+  .me-field input{width:96px;font-family:inherit;font-size:12.5px;letter-spacing:0;color:var(--ink);background:var(--paper-3);border:1px solid var(--line);border-radius:8px;padding:6px 9px;outline:none}
+  .me-field input:focus{border-color:var(--pine)}
+  .filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
+  .filterbar input,.filterbar select{font-family:inherit;font-size:13px;color:var(--ink);background:var(--paper-2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
+  .filterbar input{flex:1 1 220px;min-width:0}
+  .filterbar select{flex:0 1 auto;max-width:150px}
+  .filterbar input:focus,.filterbar select:focus{border-color:var(--pine);box-shadow:0 0 0 3px rgba(53,103,74,.1)}
+  .filterbar select.on{border-color:var(--pine);color:var(--pine-deep);background:rgba(53,103,74,.07)}
+  /* launched group */
+  .group-toggle{width:100%;display:flex;align-items:center;gap:8px;background:none;border:none;border-top:1px dashed var(--line);margin:18px 0 12px;padding:12px 4px 0;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);cursor:pointer}
+  .group-toggle:hover{color:var(--ink)}
+  .group-toggle .caret{display:inline-block;transition:transform .15s}
+  .group-toggle.open .caret{transform:rotate(90deg)}
+  /* history */
+  .history{margin-top:10px;padding:10px 12px;background:var(--paper-3);border:1px solid var(--line-soft);border-radius:9px;font-size:12.5px;color:var(--ink-soft);max-height:220px;overflow:auto}
+  .history li{list-style:none;padding:4px 0;border-bottom:1px dashed var(--line-soft);line-height:1.5}
+  .history li:last-child{border-bottom:none}
+  .history .h-at{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-faint);margin-right:6px}
+  .history .h-by{color:var(--ink);font-weight:600;margin-right:4px}
+  /* trash */
+  .sect-ico.trash{background:rgba(139,133,120,.15);color:var(--grey)}
+  .trash-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+  .trash-row:last-child{border-bottom:none}
+  .trash-row .tr-main{flex:1;min-width:0}
+  .trash-row .tr-title{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .trash-row .tr-sub{font-size:11.5px;color:var(--ink-faint);font-family:'JetBrains Mono',monospace}
+  .trash-empty{padding:16px 0 4px;color:var(--ink-soft);font-size:13px}
+  /* toast */
+  .toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;pointer-events:none;display:flex;align-items:center;gap:14px;max-width:calc(100% - 32px);background:var(--ink);color:var(--paper-2);padding:11px 16px;border-radius:11px;font-size:13.5px;box-shadow:0 10px 30px -10px rgba(0,0,0,.45);transition:.2s;z-index:50}
+  .toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  .toast-act{background:none;border:none;color:#9FD3B2;font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;padding:0;white-space:nowrap}
+  .toast-act:empty{display:none}
+
   footer{text-align:center;margin-top:32px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft);opacity:.7}
   @media (max-width:820px){.shell{flex-direction:column;gap:14px}.sidebar{width:100%;flex:0 0 auto;position:static;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.side-title{padding:2px 6px;width:100%}.side-item{width:auto;flex:0 0 auto;margin-bottom:0}}
   @media (max-width:560px){.fgrid{grid-template-columns:1fr}.brand h1{font-size:25px}.pchip{min-width:calc(50% - 4px)}.meta{grid-template-columns:repeat(2,1fr)}}
@@ -184,6 +220,7 @@
       <div class="sub"><span id="dateLabel">—</span> · 共 <b id="totalN">0</b> 筆需求</div>
     </div>
     <div class="top-actions">
+      <label class="me-field" title="記錄在修改紀錄與通知裡;只存在這台瀏覽器">操作人 <input id="meName" placeholder="你的名字" autocomplete="off"></label>
       <button class="btn ghost small" id="digestBtn">傳送今日摘要</button>
     </div>
   </div>
@@ -215,6 +252,15 @@
         <button class="btn" id="saveAdd">加入需求</button>
       </div>
     </div>
+  </div>
+
+  <div class="filterbar">
+    <input id="q" type="search" placeholder="搜尋 標題 / Ticket / 描述 / 技術回復…" autocomplete="off">
+    <select id="fx_priority"><option value="">全部優先級</option><option>P0</option><option>P1</option><option>P2</option></select>
+    <select id="fx_category"><option value="">全部類別</option><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select>
+    <select id="fx_pm"><option value="">全部 PM</option></select>
+    <select id="fx_unit"><option value="">全部需求單位</option></select>
+    <button class="icon-btn" id="fxClear" style="display:none">清除篩選</button>
   </div>
 
   <div class="listhead"><span id="listTitle">全部需求</span><span style="display:flex;align-items:center;gap:12px"><button class="icon-btn" id="sortToggle">排序:自動</button><span id="listCount">—</span></span></div>
@@ -284,6 +330,9 @@
         <div class="field"><label>自動提醒</label>
           <label class="switch" style="margin-top:8px"><input type="checkbox" id="tg_auto"><span class="track"></span><span>開啟(需保持此頁開著)</span></label>
         </div>
+        <div class="field full"><label>阻塞立即通知</label>
+          <label class="switch" style="margin-top:8px"><input type="checkbox" id="tg_block"><span class="track"></span><span>需求改成「阻塞」時,馬上推一則 Telegram 警示</span></label>
+        </div>
       </div>
       <div class="sect-actions">
         <button class="btn small" id="tgSave">儲存</button>
@@ -317,6 +366,18 @@
     <div id="backupMsg" class="backup-msg"></div>
   </section>
 
+  <!-- Trash -->
+  <section class="sect" id="trashSect">
+    <div class="sect-head" id="trashHead">
+      <div class="sect-ico trash"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></div>
+      <div><div class="tt">最近刪除</div><div class="ts">刪除的需求保留 60 天,可隨時復原(會同步給所有人)</div></div>
+      <span class="sect-state st-off" id="trashState">0 筆</span>
+    </div>
+    <div class="sect-body" id="trashBody"><div id="trashList"></div></div>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMsg"></span><button class="toast-act" id="toastAct"></button></div>
+
   <footer>REQUIREMENT TRACKER · 雲端同步 · 離線可用</footer>
   </div>
 </div>
@@ -339,7 +400,41 @@
   // store.pendingSync:有修改還沒成功寫入雲端(存在本機,關頁/斷線後重開仍記得要合併上傳)
   let dirtyVer=0, pushing=false, retryDelay=0, renderPending=false;
   const PULL_MS=180000;      // 每 3 分鐘從雲端拉一次別人的修改(分頁在前景時)
-  const TOMBSTONE_DAYS=60;   // 刪除紀錄保留天數,用來讓刪除能同步到其他人
+  const TOMBSTONE_DAYS=60;   // 刪除紀錄保留天數,用來讓刪除能同步到其他人,也是「最近刪除」可復原的期限
+  const HIST_MAX=50;         // 每筆需求保留的修改紀錄筆數
+
+  // 搜尋 / 篩選 / 顯示狀態(只影響自己的畫面,不同步)
+  let query="", fx={priority:"",category:"",pm:"",unit:""}, showLaunched=false;
+  const openHistory=new Set();
+
+  // 操作人:記在修改紀錄與通知裡;只存本機(還原機可用網址 #me=名字 帶入)
+  const MEKEY="reqtracker.me";
+  let me=""; try{ me=localStorage.getItem(MEKEY)||""; }catch(e){}
+
+  const FIELD_LABEL={ticket:"Ticket",priority:"優先級",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
+    category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復"};
+  const LONG_FIELDS={desc:1,note:1};
+  function addHistory(t,changes){
+    const at=Date.now(), by=me||"未署名";
+    // _ft:每個欄位最後修改時間,多人同時改同一筆的不同欄位時,合併用
+    t._ft=t._ft||{}; changes.forEach(c=>{ if(FIELD_LABEL[c.field]) t._ft[c.field]=at; });
+    t.history=(t.history||[]).concat(changes.map(c=>Object.assign({at,by},c))).slice(-HIST_MAX);
+  }
+  function mergeHist(a,b){
+    const m=new Map();
+    [...(a||[]),...(b||[])].forEach(h=>{ if(h) m.set([h.at,h.by,h.field,h.from,h.to].join("|"),h); });
+    return [...m.values()].sort((x,y)=>x.at-y.at).slice(-HIST_MAX);
+  }
+  function fmtTime(ms){ const d=new Date(ms); return (d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes()); }
+
+  let toastTimer=null;
+  function toast(msg,actLabel,act,ms){
+    $("toastMsg").textContent=msg;
+    const b=$("toastAct"); b.textContent=actLabel||""; b.onclick=()=>{ hideToast(); if(act) act(); };
+    $("toast").classList.add("show");
+    clearTimeout(toastTimer); toastTimer=setTimeout(hideToast,ms||(act?8000:3500));
+  }
+  function hideToast(){ $("toast").classList.remove("show"); }
 
   function loadLocal(){
     let s=null;
@@ -412,19 +507,36 @@
   }
   // 合併雲端與本機:同一筆需求取「最後修改時間」較新的;刪除紀錄晚於修改時間的就刪掉
   function mergeRemote(rec){
-    const del=new Map();
-    [...(rec.deleted||[]),...store.deleted].forEach(d=>{ if(d&&d.id&&(!del.has(d.id)||del.get(d.id)<d.at)) del.set(d.id,d.at); });
+    const del=new Map(); // id → 刪除紀錄(取最新的一次,保留刪除前的內容供復原)
+    [...(rec.deleted||[]),...store.deleted].forEach(d=>{
+      if(!d||!d.id) return; const c=del.get(d.id);
+      if(!c||c.at<d.at) del.set(d.id,Object.assign({},d,{item:d.item||(c&&c.item)}));
+      else if(!c.item&&d.item) c.item=d.item;
+    });
     const byId=new Map();
-    const put=t=>{ if(!t||!t.id) return; const c=byId.get(t.id); if(!c||(t.updatedAt||0)>(c.updatedAt||0)) byId.set(t.id,t); };
+    const put=t=>{
+      if(!t||!t.id) return; const c=byId.get(t.id);
+      if(!c){ byId.set(t.id,t); return; }
+      const win=(t.updatedAt||0)>(c.updatedAt||0)?t:c, lose=win===t?c:t;
+      // 按欄位合併:另一邊某欄位改得比較晚,就採用那一邊的值(例如 A 改 PM、B 同時改狀態,兩個都保留)
+      const wf=win._ft||{}, lf=lose._ft||{}, ft=Object.assign({},wf);
+      Object.keys(lf).forEach(k=>{
+        if((lf[k]||0)>(wf[k]||0)){ win[k]=lose[k]; if(k==="status") win.launched=lose.launched; ft[k]=lf[k]; }
+      });
+      win._ft=ft; win.updatedAt=Math.max(win.updatedAt||0,lose.updatedAt||0);
+      win.history=mergeHist(c.history,t.history); // 兩邊的修改紀錄都保留
+      byId.set(t.id,win);
+    };
     (rec.items||[]).forEach(put); store.items.forEach(put);
-    for(const [id,t] of byId){ if(del.has(id)&&del.get(id)>=(t.updatedAt||0)) byId.delete(id); }
+    for(const [id,t] of byId){ if(del.has(id)&&del.get(id).at>=(t.updatedAt||0)) byId.delete(id); }
+    for(const id of byId.keys()) del.delete(id); // 已復原的需求不再列在「最近刪除」
     // 排序:誰的拖曳排序較新就用誰的順序,另一邊多出來的接在後面
     const localFirst=(store.orderAt||0)>=(rec.orderAt||0);
     const order=localFirst?[...store.items,...(rec.items||[])]:[...(rec.items||[]),...store.items];
     const seen=new Set(), items=[];
     order.forEach(t=>{ if(t&&byId.has(t.id)&&!seen.has(t.id)){ seen.add(t.id); items.push(byId.get(t.id)); } });
     store.items=items;
-    store.deleted=pruneTombstones([...del].map(([id,at])=>({id,at})));
+    store.deleted=pruneTombstones([...del.values()]);
     store.orderAt=Math.max(store.orderAt||0,rec.orderAt||0);
     if(rec.sortMode&&(rec.sortAt||0)>(store.sortAt||0)){ store.sortMode=rec.sortMode; store.sortAt=rec.sortAt; }
     if(rec.tg&&((rec.tg._at||0)>(store.tg._at||0))) store.tg=Object.assign(store.tg,rec.tg);
@@ -614,10 +726,20 @@
     mkSide("全部", null, store.items.length);
     SYSTEMS.forEach(s=>mkSide(s, s, sysCount(s)));
 
+    renderFilterOptions(); renderTrash();
+
     let items=store.items.slice();
     if(systemFilter) items=items.filter(t=>t.system===systemFilter);
     if(filter) items=items.filter(t=>t.status===filter);
-    manualDrag = (store.sortMode==="manual" && !filter && !systemFilter);
+    if(fx.priority) items=items.filter(t=>t.priority===fx.priority);
+    if(fx.category) items=items.filter(t=>t.category===fx.category);
+    if(fx.pm) items=items.filter(t=>(t.pm||"")===fx.pm);
+    if(fx.unit) items=items.filter(t=>(t.unit||"")===fx.unit);
+    const q=query.trim().toLowerCase();
+    if(q) items=items.filter(t=>[t.ticket,t.title,t.desc,t.note,t.platform,t.unit,t.pm,t.system,t.category].join("\n").toLowerCase().includes(q));
+    const extraFiltered=!!(q||fx.priority||fx.category||fx.pm||fx.unit);
+    $("fxClear").style.display=extraFiltered?"":"none";
+    manualDrag = (store.sortMode==="manual" && !filter && !systemFilter && !extraFiltered);
     if(store.sortMode!=="manual"){
       const prio={P0:0,P1:1,P2:2};
       items.sort((a,b)=>{
@@ -628,17 +750,81 @@
       });
     }
     $("sortToggle").textContent = "排序:"+(store.sortMode==="manual"?"手動(可拖曳)":"自動");
-    $("listTitle").textContent = [systemFilter, filter].filter(Boolean).join(" · ") || "全部需求";
+    $("listTitle").textContent = [systemFilter, filter, fx.priority, fx.category, fx.pm&&("PM "+fx.pm), fx.unit, q&&("「"+query.trim()+"」")].filter(Boolean).join(" · ") || "全部需求";
     $("listCount").textContent=items.length+" 筆";
     const list=$("cardList"); list.innerHTML="";
     if(items.length===0){
       const e=document.createElement("div"); e.className="empty";
-      const filtered=filter||systemFilter;
-      e.innerHTML='<div class="et">'+(filtered?"這個篩選下沒有需求":"還沒有任何需求")+'</div><div>'+(filtered?"點左側「全部」或上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
+      const filtered=filter||systemFilter||extraFiltered;
+      e.innerHTML='<div class="et">'+(filtered?"這個篩選下沒有需求":"還沒有任何需求")+'</div><div>'+(filtered?"點「清除篩選」、左側「全部」或上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
       list.appendChild(e); return;
     }
-    items.forEach(t=>list.appendChild(card(t)));
+    // 已上線的需求收在最下方,預設收合;篩選「已上線」或搜尋時自動展開
+    const active=items.filter(t=>t.status!=="已上線"), launched=items.filter(t=>t.status==="已上線");
+    active.forEach(t=>list.appendChild(card(t)));
+    if(launched.length){
+      const expanded=showLaunched||filter==="已上線"||!!q;
+      if(filter!=="已上線"){
+        const g=document.createElement("button");
+        g.className="group-toggle"+(expanded?" open":"");
+        g.innerHTML='<span class="caret">▸</span>已上線 · '+launched.length+' 筆'+(q&&!showLaunched?'(搜尋中自動展開)':expanded?'':'(點擊展開)');
+        g.onclick=()=>{ showLaunched=!expanded; render(); };
+        list.appendChild(g);
+      }
+      if(expanded) launched.forEach(t=>list.appendChild(card(t)));
+    }
   }
+
+  // PM / 需求單位 的篩選選項依現有資料自動產生
+  function renderFilterOptions(){
+    const fill=(id,key,allLabel)=>{
+      const sel=$(id), vals=[...new Set(store.items.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+      if(fx[key]&&!vals.includes(fx[key])) vals.unshift(fx[key]);
+      sel.innerHTML='<option value="">'+allLabel+'</option>'+vals.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join("");
+      sel.value=fx[key];
+    };
+    if(document.activeElement!==$("fx_pm")) fill("fx_pm","pm","全部 PM");
+    if(document.activeElement!==$("fx_unit")) fill("fx_unit","unit","全部需求單位");
+    ["priority","category","pm","unit"].forEach(k=>$("fx_"+k).classList.toggle("on",!!fx[k]));
+  }
+
+  /* ---------------- TRASH ---------------- */
+  function trashItems(){
+    const ids=new Set(store.items.map(t=>t.id));
+    return pruneTombstones(store.deleted).filter(d=>d.item&&!ids.has(d.id)).sort((a,b)=>b.at-a.at);
+  }
+  function renderTrash(){
+    const list=trashItems();
+    $("trashState").textContent=list.length+" 筆";
+    const box=$("trashList"); box.innerHTML="";
+    if(!list.length){ box.innerHTML='<div class="trash-empty">目前沒有刪除的需求。</div>'; return; }
+    list.forEach(d=>{
+      const row=document.createElement("div"); row.className="trash-row";
+      const daysLeftKeep=Math.max(0,Math.ceil((d.at+TOMBSTONE_DAYS*DAY-Date.now())/DAY));
+      row.innerHTML='<div class="tr-main"><div class="tr-title">'+(d.item.ticket?'['+esc(d.item.ticket)+'] ':'')+esc(d.item.title)+'</div>'+
+        '<div class="tr-sub">'+fmtTime(d.at)+' 由 '+esc(d.by||"未署名")+' 刪除 · '+daysLeftKeep+' 天後永久移除</div></div>'+
+        '<button class="btn ghost small">復原</button>';
+      row.querySelector("button").onclick=()=>restoreDeleted(d.id);
+      box.appendChild(row);
+    });
+  }
+  function restoreDeleted(id,index){
+    if(store.items.some(x=>x.id===id)) return;
+    const d=store.deleted.find(x=>x.id===id&&x.item); if(!d) return;
+    const t=d.item; touch(t); addHistory(t,[{field:"_restore"}]);
+    store.deleted=store.deleted.filter(x=>x.id!==id);
+    const at=(index==null||index>store.items.length)?store.items.length:index;
+    store.items.splice(at,0,t);
+    save(); render(); toast("已復原「"+t.title+"」");
+  }
+  $("trashHead").onclick=()=>$("trashBody").classList.toggle("open");
+
+  /* ---------------- SEARCH / FILTER ---------------- */
+  $("q").addEventListener("input",()=>{ query=$("q").value; render(); });
+  ["priority","category","pm","unit"].forEach(k=>{ $("fx_"+k).onchange=()=>{ fx[k]=$("fx_"+k).value; render(); }; });
+  $("fxClear").onclick=()=>{ query=""; $("q").value=""; fx={priority:"",category:"",pm:"",unit:""}; render(); };
+  $("meName").value=me;
+  $("meName").addEventListener("change",()=>{ me=$("meName").value.trim(); $("meName").value=me; try{ localStorage.setItem(MEKEY,me); }catch(e){} });
 
   function card(t){
     const el=document.createElement("div");
@@ -674,16 +860,21 @@
         metaCell("文件",!t.doc?"—":safeUrl(t.doc)?'<a href="'+esc(safeUrl(t.doc))+'" target="_blank" rel="noopener noreferrer">開啟 ↗</a>':'<span title="連結格式不安全,已停用">⚠ 連結無效</span>')+
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+esc(t.note)+'</div>':'')+
-      '<div class="card-actions"><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>';
+      '<div class="card-actions"><button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
+      (openHistory.has(t.id)?historyHtml(t):'');
     const sel=el.querySelector("[data-status]");
     sel.onchange=()=>{
+      const prev=t.status; if(sel.value===prev) return;
       t.status=sel.value; touch(t);
+      addHistory(t,[{field:"status",from:prev,to:t.status}]);
       if(t.status==="已上線"&&!t.launched) t.launched=today();
       if(t.status!=="已上線") t.launched=null;
       save(); render();
+      if(t.status==="阻塞") notifyBlocked(t);
     };
     sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
-    el.querySelector("[data-del]").onclick=()=>{ if(confirm("刪除這筆需求？")){ store.items=store.items.filter(x=>x.id!==t.id); store.deleted.push({id:t.id,at:Date.now()}); save(); render(); } };
+    el.querySelector("[data-del]").onclick=()=>deleteItem(t);
+    el.querySelector("[data-hist]").onclick=()=>{ if(openHistory.has(t.id)) openHistory.delete(t.id); else openHistory.add(t.id); render(); };
     el.querySelector("[data-edit]").onclick=()=>openEdit(t);
     if(manualDrag){
       el.draggable=true;
@@ -703,7 +894,42 @@
     return el;
   }
   function metaCell(k,v){return '<div class="m"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
-  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); store.sortAt=Date.now(); if(store.sortMode==="manual"){ filter=null; systemFilter=null; } save(); render(); };
+  function historyText(h){
+    if(h.field==="_create") return "建立需求";
+    if(h.field==="_restore") return "從「最近刪除」復原";
+    if(h.field==="_import") return "由備份匯入";
+    const label=FIELD_LABEL[h.field]||h.field;
+    if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
+    const v=x=>(x==null||x==="")?"(空)":String(x);
+    return label+":"+v(h.from)+" → "+v(h.to);
+  }
+  function historyHtml(t){
+    const list=(t.history||[]).slice().reverse();
+    if(!list.length) return '<div class="history">還沒有修改紀錄(這個功能上線後的修改才會記錄)。</div>';
+    return '<ul class="history">'+list.map(h=>'<li><span class="h-at">'+fmtTime(h.at)+'</span><span class="h-by">'+esc(h.by||"未署名")+'</span>'+esc(historyText(h))+'</li>').join("")+'</ul>';
+  }
+  // 刪除:放進「最近刪除」,並提供幾秒內一鍵復原
+  function deleteItem(t){
+    const idx=store.items.findIndex(x=>x.id===t.id); if(idx<0) return;
+    const snap=JSON.parse(JSON.stringify(t));
+    store.items.splice(idx,1);
+    store.deleted=store.deleted.filter(d=>d.id!==t.id);
+    store.deleted.push({id:t.id,at:Date.now(),by:me||"未署名",item:snap});
+    openHistory.delete(t.id);
+    save(); render();
+    toast("已刪除「"+t.title+"」","復原",()=>restoreDeleted(t.id,idx));
+  }
+  // 阻塞立即通知(只有做出修改的那台會發,避免重複)
+  function notifyBlocked(t){
+    if(!tgConfigured()||store.tg.blockAlert===false) return;
+    const clip=(s,n)=>{ s=String(s||""); return s.length>n?s.slice(0,n)+"…":s; };
+    let msg="🚧 <b>需求阻塞</b>\n["+tgEsc(t.ticket||"—")+"] "+tgEsc(clip(t.title,150))+"\n";
+    msg+="系統:"+tgEsc(t.system||"—")+" · 優先級:"+tgEsc(t.priority)+(t.pm?" · PM:"+tgEsc(t.pm):"");
+    if(t.note) msg+="\n卡點:"+tgEsc(clip(String(t.note).split("\n")[0],200));
+    msg+="\n操作人:"+tgEsc(me||"未署名");
+    sendTg(msg).then(()=>toast("已推送阻塞警示到 Telegram")).catch(e=>toast("阻塞警示傳送失敗:"+e.message));
+  }
+  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); store.sortAt=Date.now(); if(store.sortMode==="manual"){ filter=null; systemFilter=null; query=""; $("q").value=""; fx={priority:"",category:"",pm:"",unit:""}; } save(); render(); };
   function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   // Telegram HTML 模式只需轉義 & < >;未轉義時整則訊息會被拒收
   function tgEsc(s){return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
@@ -738,10 +964,21 @@
       doc, note:$("f_note").value.trim() };
     const editing=editingId&&store.items.find(x=>x.id===editingId);
     if(editingId&&!editing&&!confirm("這筆需求已被其他人刪除。要把你的內容當成新需求加入嗎？")) return;
-    if(editing){ const t=editing; Object.assign(t,data); touch(t);
+    let target, becameBlocked=false;
+    if(editing){ const t=editing;
+      const norm=v=>String(v==null?"":v).trim();
+      const changes=Object.keys(data).filter(k=>norm(t[k])!==norm(data[k]))
+        .filter(k=>!(k==="submit"&&!norm(t[k]))) // 舊資料沒有提交日期時表單會自動補今天,不算使用者修改
+        .map(k=>LONG_FIELDS[k]?{field:k}:{field:k,from:t[k]||"",to:data[k]||""});
+      becameBlocked=data.status==="阻塞"&&t.status!=="阻塞";
+      Object.assign(t,data);
+      if(changes.length){ touch(t); addHistory(t,changes); }
       if(t.status==="已上線"&&!t.launched) t.launched=today(); if(t.status!=="已上線") t.launched=null;
-    }else{ data.id=Date.now()+"-"+Math.random().toString(36).slice(2,6); data.launched=data.status==="已上線"?today():null; touch(data); store.items.push(data); }
+      target=t;
+    }else{ data.id=Date.now()+"-"+Math.random().toString(36).slice(2,6); data.launched=data.status==="已上線"?today():null; touch(data); addHistory(data,[{field:"_create"}]); store.items.push(data);
+      becameBlocked=data.status==="阻塞"; target=data; }
     save(); closeForm(); render();
+    if(becameBlocked) notifyBlocked(target);
   };
 
   /* ---------------- TELEGRAM ---------------- */
@@ -750,15 +987,30 @@
     if(tgConfigured()&&store.tg.auto){ s.textContent="自動提醒中"; s.className="sect-state st-on"; }
     else if(tgConfigured()){ s.textContent="已設定"; s.className="sect-state st-on"; }
     else{ s.textContent="未設定"; s.className="sect-state st-off"; } }
-  function loadTgForm(){ $("tg_token").value=store.tg.token; $("tg_chat").value=store.tg.chat; $("tg_time").value=store.tg.time||"09:00"; $("tg_auto").checked=!!store.tg.auto; }
+  function loadTgForm(){ $("tg_token").value=store.tg.token; $("tg_chat").value=store.tg.chat; $("tg_time").value=store.tg.time||"09:00"; $("tg_auto").checked=!!store.tg.auto; $("tg_block").checked=store.tg.blockAlert!==false; }
   $("tgHead").onclick=()=>$("tgBody").classList.toggle("open");
-  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; store.tg._at=Date.now(); save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
+  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; store.tg.blockAlert=$("tg_block").checked; store.tg._at=Date.now(); save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
   function tgMsg(t,cls){ const m=$("tgMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
   async function sendTg(text){
     const token=($("tg_token").value||store.tg.token).trim(), chat=($("tg_chat").value||store.tg.chat).trim();
     if(!token||!chat) throw new Error("尚未填寫 Token 或 Chat ID");
-    const res=await fetch("https://api.telegram.org/bot"+token+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text,parse_mode:"HTML",disable_web_page_preview:true})});
-    const j=await res.json(); if(!j.ok) throw new Error(j.description||"傳送失敗"); return j;
+    let j=null;
+    for(const part of splitTg(text)){ // Telegram 單則上限 4096 字,太長就依行拆成多則依序送出
+      const res=await fetch("https://api.telegram.org/bot"+token+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chat,text:part,parse_mode:"HTML",disable_web_page_preview:true})});
+      j=await res.json(); if(!j.ok) throw new Error(j.description||"傳送失敗");
+    }
+    return j;
+  }
+  // 依換行拆段(每行的 HTML 標籤都在同一行內開合,拆行不會弄壞格式)
+  function splitTg(text,max){
+    max=max||3900; const parts=[]; let cur="";
+    String(text).split("\n").forEach(line=>{
+      while(line.length>max){ if(cur){ parts.push(cur); cur=""; } parts.push(line.slice(0,max)); line=line.slice(max); }
+      if(cur.length+line.length+1>max){ parts.push(cur); cur=""; }
+      cur+=(cur?"\n":"")+line;
+    });
+    if(cur.trim()) parts.push(cur);
+    return parts;
   }
   async function tryDetectChat(token){ try{ const r=await fetch("https://api.telegram.org/bot"+token+"/getUpdates"); const j=await r.json(); if(j.ok&&j.result.length){ const last=j.result[j.result.length-1]; const c=last.message&&last.message.chat&&last.message.chat.id; if(c) return String(c); } }catch(e){} return null; }
   $("tgTest").onclick=async ()=>{
@@ -771,14 +1023,15 @@
       tgMsg("測試訊息已送出,請查看 Telegram ✓","ok");
     }catch(e){ tgMsg("失敗:"+e.message,"err"); }
   };
+  function clipText(s,n){ s=String(s||""); return s.length>n?s.slice(0,n)+"…":s; }
   function buildDigest(){
     const counts={}; STATUSES.forEach(s=>counts[s]=0); store.items.forEach(t=>counts[t.status]++);
     let msg="📋 <b>需求追蹤日報</b> ("+today().slice(5)+")\n";
     msg+="🟨待評估 "+counts["待評估"]+" · 🟦開發中 "+counts["開發中"]+" · 🟪待測試 "+counts["待測試"]+" · 🟥阻塞 "+counts["阻塞"]+" · 🟩已上線 "+counts["已上線"]+"\n";
     const soon=store.items.filter(t=>t.status!=="已上線"&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
-    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(t.title)+" — "+tag+" ("+tgEsc(t.priority)+")\n"; }); }
+    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+" ("+tgEsc(t.priority)+")\n"; }); }
     const blocked=store.items.filter(t=>t.status==="阻塞");
-    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(t.title)+(t.note?" — "+tgEsc(String(t.note).split("\n")[0]):"")+"\n"; }); }
+    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgEsc(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
     if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
     return msg;
   }
@@ -843,7 +1096,7 @@
         const now=Date.now();
         const items=data.items.map(t=>Object.assign({},t,{id:t.id||(now+"-"+Math.random().toString(36).slice(2,6)),updatedAt:now}));
         const ids=new Set(items.map(t=>t.id));
-        store.items.forEach(t=>{ if(!ids.has(t.id)) store.deleted.push({id:t.id,at:now}); });
+        store.items.forEach(t=>{ if(!ids.has(t.id)) store.deleted.push({id:t.id,at:now,by:(me||"未署名")+"(匯入備份)",item:JSON.parse(JSON.stringify(t))}); });
         store.deleted=store.deleted.filter(d=>!ids.has(d.id));
         store.items=items; store.orderAt=now;
         if(data.tg){ const {token, ...rest}=data.tg; store.tg=Object.assign(store.tg,rest,{_at:now}); if(!store.tg.token&&token) store.tg.token=token; }
@@ -874,6 +1127,8 @@
     if(m){ const d=decSync(decodeURIComponent(m[1])); if(d){
       if(d.bin!==store.cloud.bin){ store.pendingSync=false; store.cloudRev=null; } // 換資料庫:不混入舊資料
       store.cloud=d; saveLocal(); } }
+    const mm=location.hash.match(/(?:^#|&)me=([^&]+)/);
+    if(mm){ try{ me=decodeURIComponent(mm[1]).trim(); localStorage.setItem(MEKEY,me); }catch(e){} $("meName").value=me; }
     loadTgForm(); render();
 
     if(cloudConfigured()){
