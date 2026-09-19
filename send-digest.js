@@ -162,19 +162,14 @@ const WEEKLY_STATUSES = { "待評估": 1, "未釐清": 1, "釐清中": 1, "開�
 const STALE_DAYS = 7;       // 超過幾天沒有任何修改算「久未更新」
 const SYSTEM_ORDER = ["KR", "DY", "LJ"];
 
-// 最後一次「真正的內容修改」:修改紀錄裡有人改了欄位(網站上改,或表格改了同步過來)。
-// 不算更新:從表格同步建立、匯入備份、復原、自動補上系統。從沒真正改過的,以提交日期起算。
-const NOT_REAL_UPDATE = { _sheet: 1, _import: 1, _restore: 1 };
+// 網站資料最後變動的時間(網站上的修改、Google 表格同步建立或同步修改都算);
+// 沒有變動時間的舊資料,改用修改紀錄,再沒有就用提交日期
 function lastTouched(t) {
-  let last = 0;
-  (t.history || []).forEach(h => {
-    if (!h || !(h.at > 0) || NOT_REAL_UPDATE[h.field]) return;
-    if (h.field === "system" && h.by === "Google 表格") return;
-    if (h.at > last) last = h.at;
-  });
+  let last = Number(t.updatedAt) || 0;
+  (t.history || []).forEach(h => { if (h && h.at > last) last = h.at; });
+  if (last > 86400000) return last;
   const s = Date.parse((t.submit || "") + "T00:00:00+08:00");
-  if (!isNaN(s) && s > last) last = s;
-  return last > 0 ? last : null;
+  return isNaN(s) ? null : s;
 }
 
 function buildWeekly(items, today) {
@@ -186,11 +181,9 @@ function buildWeekly(items, today) {
     const hasPriority = /^P[0-2]$/.test(String(t.priority || ""));
     const hasRank = parseInt(t.rank, 10) > 0;
     if (!hasPriority && !hasRank) return;
-    const reasons = [];
+    // 網站資料最後變動後超過 N 天沒有任何變動
     const last = lastTouched(t);
-    const idle = last == null ? null : Math.floor((now - last) / 86400000);
-    if (idle != null && idle >= STALE_DAYS) reasons.push(idle + "天未更新");
-    if (reasons.length) rows.push({ t, reasons });
+    if (last != null && Math.floor((now - last) / 86400000) >= STALE_DAYS) rows.push({ t });
   });
 
   let msg = `📌 <b>每週技術追蹤清單</b> (${today.slice(5)})\n`;
@@ -214,12 +207,10 @@ function buildWeekly(items, today) {
       return String(a.t.submit || "9999").localeCompare(String(b.t.submit || "9999"));
     });
     msg += `\n<b>${sys === "其他" ? "未分系統" : sys + " 系統"}</b>(${list.length} 筆)\n`;
-    list.forEach(({ t, reasons }) => {
-      const tags = [t.status];
-      if (rankOf(t) !== Infinity) tags.push("順位" + rankOf(t));
-      else if (t.priority && t.priority !== "TBD") tags.push(t.priority);
-      if (t.pm) tags.push("PM " + t.pm);
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 80))}(${tgEsc(tags.join(" · "))})— ${reasons.join("、")}\n`;
+    // 只顯示 順位或優先級(有順位顯示順位,沒有就顯示 P0/P1/P2)、編號、標題
+    list.forEach(({ t }) => {
+      const level = rankOf(t) !== Infinity ? "順位" + rankOf(t) : String(t.priority);
+      msg += `• ${tgEsc(level)} [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 80))}\n`;
     });
   });
   return msg;
