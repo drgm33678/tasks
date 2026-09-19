@@ -2,8 +2,8 @@
 // 由 GitHub Actions 定時執行。所有密鑰從環境變數(GitHub Secrets)讀取。
 // 需要 Node 18+（GitHub runner 內建 fetch）。
 
-const BIN   = process.env.JSONBIN_BIN_ID;
-const KEY   = process.env.JSONBIN_KEY;
+const GAS_URL   = process.env.GAS_URL;   // Apps Script Web App 網址
+const GAS_TOKEN = process.env.GAS_TOKEN; // 存取金鑰
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT  = process.env.TELEGRAM_CHAT_ID;
 const TZ_OFFSET = 8; // 台灣 UTC+8。若在其他時區，改成你的時差。
@@ -71,16 +71,22 @@ function splitTg(text, max = 3900) {
 }
 
 async function main() {
-  if (!BIN || !KEY || !TOKEN || !CHAT) {
-    throw new Error("缺少必要的環境變數（Secrets）。請確認 JSONBIN_BIN_ID / JSONBIN_KEY / TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 都已設定。");
+  if (!GAS_URL || !GAS_TOKEN || !TOKEN || !CHAT) {
+    throw new Error("缺少必要的環境變數（Secrets）。請確認 GAS_URL / GAS_TOKEN / TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 都已設定。");
   }
 
-  // 1) 讀取雲端資料
-  const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN}/latest`, {
-    headers: { "X-Master-Key": KEY }
+  // 1) 讀取雲端資料(Google 雲端硬碟,透過 Apps Script Web App)
+  const res = await fetch(GAS_URL.trim(), {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ k: GAS_TOKEN.trim(), op: "read" }),
+    redirect: "follow"
   });
-  if (!res.ok) throw new Error("JSONBin 讀取失敗：" + res.status);
-  const json = await res.json();
+  if (!res.ok) throw new Error("雲端讀取失敗：" + res.status);
+  let json;
+  try { json = await res.json(); }
+  catch (e) { throw new Error("雲端回應格式不對，請確認 Web App 的存取權是「任何人」、GAS_URL 是 /exec 結尾的網址"); }
+  if (!json.ok) throw new Error("雲端讀取失敗：" + (json.error === "unauthorized" ? "存取金鑰錯誤（檢查 GAS_TOKEN）" : json.error));
   const items = (json.record && Array.isArray(json.record.items)) ? json.record.items : [];
 
   // 2) 組摘要（格式與網站內一致）

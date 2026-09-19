@@ -269,16 +269,16 @@
   <section class="sect" id="cloudSect">
     <div class="sect-head" id="cloudHead">
       <div class="sect-ico cloud"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10a4 4 0 0 0-7.7-1.3A3.5 3.5 0 0 0 5 12a3.5 3.5 0 0 0 .5 7h12a3.5 3.5 0 0 0 .5-9z"/></svg></div>
-      <div><div class="tt">雲端同步</div><div class="ts">重開機不遺失 · 資料存到你的 JSONBin</div></div>
+      <div><div class="tt">雲端同步</div><div class="ts">重開機不遺失 · 資料存在你的 Google 雲端硬碟</div></div>
       <span class="sect-state st-off" id="cloudSectState">未連線</span>
     </div>
     <div class="sect-body" id="cloudBody">
       <div class="fgrid">
-        <div class="field"><label>JSONBin Master Key</label><input class="mono" id="c_key" placeholder="$2a$10$…" autocomplete="off"></div>
-        <div class="field"><label>Bin ID(留空＝自動建立)</label><input class="mono" id="c_bin" placeholder="留空即自動建立新資料庫" autocomplete="off"></div>
+        <div class="field full"><label>Web App 網址</label><input class="mono" id="c_bin" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+        <div class="field full"><label>存取金鑰</label><input class="mono" id="c_key" placeholder="Apps Script 執行 showAccessToken 取得" autocomplete="off"></div>
       </div>
       <div class="sect-actions">
-        <button class="btn small" id="cConnect">連線 / 建立</button>
+        <button class="btn small" id="cConnect">連線</button>
         <button class="btn ghost small" id="cBackup">立即備份</button>
         <button class="btn ghost small" id="cReload">從雲端重新載入</button>
         <span class="sect-msg" id="cMsg"></span>
@@ -302,15 +302,15 @@
       </div>
 
       <div class="help">
-        <b>取得 Master Key(一次性,約 1 分鐘):</b>
+        <b>第一次連線(一次性):</b>
         <ol>
-          <li>到 <code>jsonbin.io</code> 免費註冊並登入。</li>
-          <li>進入 <b>API Keys</b>,複製 <code>X-MASTER-KEY</code> 貼到上方。</li>
-          <li>Bin ID 留空,按「連線 / 建立」→ 系統自動建立資料庫並給你<b>同步碼</b>。</li>
+          <li>在 Apps Script「排程項目同步」專案:部署 → 管理部署作業,複製「網頁應用程式」網址,貼到上方。</li>
+          <li>執行 <code>showAccessToken</code>,從執行記錄複製存取金鑰,貼到上方,按「連線」。</li>
+          <li>連上後下方會出現<b>同步碼</b>(網址 + 金鑰打包成一串)。</li>
         </ol>
         <div style="margin-top:9px">把同步碼存到手機(或私人記事)。這台還原機重開機後,回到本頁把同步碼貼進最下方欄位,按「連線」即可還原全部資料。</div>
       </div>
-      <div class="warn-note">⚠ 若這些是公司機密需求,放在第三方免費雲端可能不符合公司資安規範。敏感內容請改用公司核准的儲存空間,或改走自架後端(我可以協助)。</div>
+      <div class="warn-note">⚠ 同步碼就是資料的鑰匙,只給需要使用的人。懷疑外洩時,到 Apps Script 執行 <code>rotateAccessToken</code> 換新金鑰,再把新金鑰更新到網站與 GitHub Secret <code>GAS_TOKEN</code>。</div>
     </div>
   </section>
 
@@ -418,7 +418,6 @@
   const STATUSES=["待評估","開發中","待測試","阻塞","已上線"];
   const SCOLOR={"待評估":"var(--gold)","開發中":"var(--blue)","待測試":"var(--teal)","阻塞":"var(--brick)","已上線":"var(--grey)"};
   const SBG={"待評估":"rgba(168,132,46,.15)","開發中":"rgba(62,110,158,.15)","待測試":"rgba(46,139,132,.15)","阻塞":"rgba(180,68,46,.15)","已上線":"rgba(139,133,120,.15)"};
-  const API="https://api.jsonbin.io/v3/b";
   const $=id=>document.getElementById(id);
 
   let store=loadLocal();
@@ -490,9 +489,13 @@
   function today(){return ymd(new Date());}
   function daysLeft(due){ if(!due) return null; const a=new Date(due+"T00:00:00"),b=new Date(today()+"T00:00:00"); return Math.round((a-b)/DAY); }
 
-  /* ---------------- CLOUD SYNC (JSONBin) ---------------- */
+  /* ---------------- CLOUD SYNC (Google Apps Script + 雲端硬碟) ---------------- */
+  // store.cloud.bin = Web App 網址、store.cloud.key = 存取金鑰(沿用舊欄位名稱,同步碼格式不變)
   const MSG_ON="已連線雲端 · 自動備份中 · 重開機不遺失";
-  function cloudConfigured(){ return !!(store.cloud.bin && store.cloud.key); }
+  function isGasUrl(u){ return /^https:\/\/script\.google(usercontent)?\.com\//.test(String(u||"").trim()); }
+  function cloudConfigured(){ return !!(store.cloud.bin && store.cloud.key && isGasUrl(store.cloud.bin)); }
+  // 舊版(JSONBin)的設定:資料已搬到 Google 雲端硬碟,需要重新輸入新的同步碼
+  function legacyCloudConfig(){ return !!(store.cloud.bin && store.cloud.key && !isGasUrl(store.cloud.bin)); }
   function cloudUI(state,msg){ // state: off | on | sync
     const bar=$("cloudbar"); bar.className="cloudbar "+state;
     $("cloudMsg").textContent=msg;
@@ -506,23 +509,22 @@
   function showSyncCode(){ if(!cloudConfigured()) return; $("syncBox").style.display="block"; $("syncCodeOut").value=encSync(store.cloud.bin,store.cloud.key); }
 
   function httpError(msg,status){ const e=new Error(msg+" ("+status+")"); e.status=status; return e; }
-  // 4xx(429 除外)代表 Key / Bin ID 有誤,重試也沒用
+  // 4xx(429 除外)代表網址 / 金鑰有誤,重試也沒用
   function isFatal(e){ return e.status>=400 && e.status<500 && e.status!==429; }
-  async function cloudRead(){
-    const r=await fetch(API+"/"+store.cloud.bin+"/latest",{headers:{"X-Master-Key":store.cloud.key}});
-    if(!r.ok) throw httpError("讀取失敗",r.status);
-    const j=await r.json(); return j.record||{};
+  // 呼叫 Apps Script Web App:一律 POST 純文字 JSON(不觸發 CORS 預檢),金鑰放在內容裡
+  async function gas(op,extra){
+    const r=await fetch(store.cloud.bin.trim(),{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify(Object.assign({k:store.cloud.key,op},extra||{}))});
+    if(!r.ok) throw httpError("連線失敗",r.status);
+    let j; try{ j=await r.json(); }catch(e){ throw httpError("雲端回應格式不對,請確認 Web App 的存取權是「任何人」",403); }
+    if(j.ok) return j;
+    if(j.conflict){ const e=new Error("雲端資料剛被更新"); e.conflict=true; throw e; }
+    throw httpError(j.error==="unauthorized"?"存取金鑰錯誤":("雲端錯誤:"+(j.error||"未知")), j.status||500);
   }
-  async function cloudWrite(data){
-    const r=await fetch(API+"/"+store.cloud.bin,{method:"PUT",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key},body:JSON.stringify(data)});
-    if(!r.ok) throw httpError("寫入失敗",r.status);
-    return r.json();
-  }
-  async function cloudCreate(data){
-    const r=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json","X-Master-Key":store.cloud.key,"X-Bin-Name":"requirement-tracker","X-Bin-Private":"true"},body:JSON.stringify(data)});
-    if(!r.ok) throw httpError("建立失敗",r.status);
-    const j=await r.json(); return j.metadata.id;
-  }
+  async function cloudRead(){ return (await gas("read")).record||{}; }
+  async function cloudRevOnly(){ return (await gas("rev")).rev||0; }
+  // ifRev:只有雲端版本仍是這個版本時才寫入;回傳寫入後的新版本號
+  async function cloudWrite(data,ifRev){ return (await gas("write",{record:data,ifRev})).rev; }
 
   function pruneTombstones(list){ const min=Date.now()-TOMBSTONE_DAYS*DAY; return (list||[]).filter(d=>d&&d.id&&d.at>=min); }
   function payload(rev){
@@ -557,6 +559,8 @@
         if((lf[k]||0)>(wf[k]||0)){ win[k]=lose[k]; if(k==="status") win.launched=lose.launched; ft[k]=lf[k]; }
       });
       win._ft=ft; win.updatedAt=Math.max(win.updatedAt||0,lose.updatedAt||0);
+      // _sheet:Google 表格同步程式記下的「上次從表格同步的值」,取較新的一份,避免表格舊值再次覆蓋網站
+      if((lose._sheetAt||0)>(win._sheetAt||0)){ win._sheet=lose._sheet; win._sheetAt=lose._sheetAt; }
       win.history=mergeHist(c.history,t.history); // 兩邊的修改紀錄都保留
       byId.set(t.id,win);
     };
@@ -585,26 +589,29 @@
     clearTimeout(pushTimer);
     pushTimer=setTimeout(doCloudPush, delay==null?1500:delay);
   }
-  // 上傳流程:先讀雲端 → 版本不同代表別人改過,先合併 → 寫回並把版本 +1
+  // 上傳流程:先讀雲端 → 版本不同代表別人改過,先合併 → 寫回(雲端確認期間沒人寫過才接受,否則重來)
+  let conflictRetries=0;
   async function doCloudPush(){
     if(!cloudReady||!hasUnsynced()) return;
     if(pushing){ scheduleCloudPush(500); return; }
-    pushing=true; const ver=dirtyVer;
+    pushing=true; const ver=dirtyVer; let merged=false;
     try{
       const rec=await cloudRead();
       const remoteRev=rec._rev||0;
-      const merged=remoteRev!==store.cloudRev;
+      merged=remoteRev!==store.cloudRev;
       if(merged) mergeRemote(rec);
-      const rev=remoteRev+1;
-      await cloudWrite(payload(rev));
-      store.cloudRev=rev;
+      const rev=await cloudWrite(payload(remoteRev+1),remoteRev);
+      store.cloudRev=rev; conflictRetries=0;
       if(dirtyVer===ver) store.pendingSync=false;
       saveLocal(); retryDelay=0;
       if(merged) afterRemoteChange();
       if(hasUnsynced()) scheduleCloudPush(0); // 上傳期間又有新修改,再送一次
       else cloudUI("on",merged?"已連線雲端 · 已合併其他人的修改":MSG_ON);
     }catch(e){
-      if(isFatal(e)){ cloudReady=false; cloudUI("off","備份失敗:"+e.message+" — 請檢查 Key / Bin ID 後重新連線"); return; }
+      // 讀取後、寫入前有人(或 Google 表格同步)先寫了:馬上重新讀取合併再送
+      if(e.conflict&&conflictRetries<5){ conflictRetries++; if(merged) afterRemoteChange(); clearTimeout(pushTimer); pushTimer=setTimeout(doCloudPush,300+Math.random()*700); return; }
+      conflictRetries=0;
+      if(isFatal(e)){ cloudReady=false; cloudUI("off","備份失敗:"+e.message+" — 請檢查 Web App 網址 / 存取金鑰後重新連線"); return; }
       // 失敗自動重試:5s → 10s → 20s … 最長 60s
       retryDelay=Math.min(retryDelay?retryDelay*2:5000,60000);
       cloudUI("off","備份失敗:"+e.message+" — "+(retryDelay/1000)+" 秒後自動重試,請先不要關閉此頁或重開機");
@@ -630,7 +637,7 @@
       return cloudReady;
     }catch(e){
       cloudReady=false;
-      if(isFatal(e)){ cloudUI("off","雲端連線失敗:"+e.message+" — 請檢查 Key / Bin ID"); return false; }
+      if(isFatal(e)){ cloudUI("off","雲端連線失敗:"+e.message+" — 請檢查 Web App 網址 / 存取金鑰"); return false; }
       retryDelay=Math.min(retryDelay?retryDelay*2:5000,60000);
       cloudUI("off","雲端連線失敗:"+e.message+" — "+(retryDelay/1000)+" 秒後重試。期間的修改會先存本機,連上後自動合併上傳");
       connectTimer=setTimeout(connectExisting,retryDelay);
@@ -642,6 +649,9 @@
     if(!cloudReady||pushing||hasUnsynced()||document.hidden) return;
     const baseRev=store.cloudRev;
     try{
+      // 先只問版本號,沒變就不下載整份資料
+      if((await cloudRevOnly())===store.cloudRev) return;
+      if(pushing||hasUnsynced()||store.cloudRev!==baseRev) return;
       const rec=await cloudRead();
       if(pushing||hasUnsynced()||store.cloudRev!==baseRev) return;
       if((rec._rev||0)!==store.cloudRev){ adopt(rec); afterRemoteChange(); }
@@ -658,30 +668,22 @@
 
   async function connectCloud(){
     const key=$("c_key").value.trim(), bin=$("c_bin").value.trim();
-    if(!key){ cMsg("請先填入 Master Key","err"); return; }
+    if(!isGasUrl(bin)){ cMsg("請填入 Apps Script 的 Web App 網址(https://script.google.com/macros/s/…/exec)","err"); return; }
+    if(!key){ cMsg("請填入存取金鑰","err"); return; }
     const prevBin=store.cloud.bin;
     clearTimeout(pushTimer); clearTimeout(connectTimer); retryDelay=0; cloudReady=false;
     store.cloud.key=key; store.cloud.bin=bin;
     cMsg("連線中…",""); cloudUI("sync","連線中…");
     try{
-      if(!bin){
-        // 建立新資料庫,以目前本機資料為起點
-        const id=await cloudCreate(payload(1));
-        store.cloud.bin=id; $("c_bin").value=id;
-        store.cloudRev=1; store.pendingSync=false; saveLocal();
-        cloudReady=true; showSyncCode();
-        cMsg("已建立雲端資料庫並上傳目前資料 ✓","ok");
-        cloudUI("on",MSG_ON);
-        return;
-      }
-      if(prevBin&&prevBin!==bin){ store.pendingSync=false; store.cloudRev=null; } // 換到另一個資料庫:不把舊資料混進去
+      if(prevBin&&!isGasUrl(prevBin)){ store.pendingSync=false; store.cloudRev=null; } // 從舊的 JSONBin 換過來:以雲端硬碟上搬好的資料為準
+      else if(prevBin&&prevBin!==bin){ store.pendingSync=false; store.cloudRev=null; } // 換到另一個資料庫:不把舊資料混進去
       else if(!prevBin){ store.cloudRev=null; } // 首次連線:本機若有未上傳資料會合併進雲端
       saveLocal();
       const ok=await connectExisting();
       if(!ok) cMsg("連線失敗,詳見上方狀態列","err");
       else if(hasUnsynced()) cMsg("已連線,本機修改上傳中…","");
       else cMsg("已連線並同步 ✓","ok");
-    }catch(e){ cloudReady=false; cMsg("失敗:"+e.message,"err"); cloudUI("off","連線失敗,請檢查 Key / Bin ID"); }
+    }catch(e){ cloudReady=false; cMsg("失敗:"+e.message,"err"); cloudUI("off","連線失敗,請檢查 Web App 網址 / 存取金鑰"); }
   }
   function cMsg(t,cls){ const m=$("cMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
 
@@ -932,6 +934,7 @@
     if(h.field==="_create") return "建立需求";
     if(h.field==="_restore") return "從「最近刪除」復原";
     if(h.field==="_import") return "由備份匯入";
+    if(h.field==="_sheet") return "從 Google 表格同步建立";
     const label=FIELD_LABEL[h.field]||h.field;
     if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
     const v=x=>(x==null||x==="")?"(空)":String(h.field==="priority"?priLabel(x):x);
@@ -1216,6 +1219,8 @@
     if(cloudConfigured()){
       $("c_key").value=store.cloud.key; $("c_bin").value=store.cloud.bin;
       await connectExisting(); // 失敗會自動重試;期間的修改先存本機,連上後合併上傳
+    }else if(legacyCloudConfig()){
+      cloudUI("off","雲端已搬到 Google 雲端硬碟 — 請到下方「雲端同步」貼上新的同步碼");
     }else{
       cloudUI("off","未連線雲端 — 此裝置重開機資料會消失,請先設定雲端同步");
     }
