@@ -243,7 +243,7 @@
   <div class="topbar">
     <div class="brand">
       <h1>排程項目</h1>
-      <div class="sub"><span id="dateLabel">—</span> · 共 <b id="totalN">0</b> 筆需求</div>
+      <div class="sub"><span id="dateLabel">—</span> · <span id="totalLabel"></span>共 <b id="totalN">0</b> 筆需求</div>
     </div>
     <div class="top-actions">
       <label class="me-field" title="記錄在修改紀錄與通知裡;只存在這台瀏覽器">操作人 <input id="meName" placeholder="你的名字" autocomplete="off"></label>
@@ -730,10 +730,13 @@
     const MON=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
     const DOW=["週日","週一","週二","週三","週四","週五","週六"];
     $("dateLabel").textContent=MON[d.getMonth()]+" "+d.getDate()+" · "+DOW[d.getDay()];
-    $("totalN").textContent=store.items.length;
+    // 標題件數、狀態卡、逾期/阻塞警示都跟著左側選的系統(選「全部」時算全部)
+    const sysItems=store.items.filter(t=>!systemFilter||t.system===systemFilter);
+    $("totalN").textContent=sysItems.length;
+    $("totalLabel").textContent=systemFilter?systemFilter+" ":"";
 
     const counts={}; STATUSES.forEach(s=>counts[s]=0);
-    store.items.forEach(t=>{counts[t.status]=(counts[t.status]||0)+1;});
+    sysItems.forEach(t=>{counts[t.status]=(counts[t.status]||0)+1;});
     const pl=$("pipeline"); pl.innerHTML="";
     STATUSES.forEach(s=>{
       const b=document.createElement("button");
@@ -743,8 +746,8 @@
       pl.appendChild(b);
     });
 
-    const overdue=store.items.filter(isOverdue);
-    const blocked=store.items.filter(t=>t.status==="阻塞");
+    const overdue=sysItems.filter(isOverdue);
+    const blocked=sysItems.filter(t=>t.status==="阻塞");
     const ab=$("alertbar"); const parts=[];
     if(overdue.length) parts.push('<b>⚠ '+overdue.length+' 件逾期</b>');
     if(blocked.length) parts.push('<b>🚧 '+blocked.length+' 件阻塞</b>');
@@ -752,7 +755,9 @@
 
     // 左側系統分類
     const sb=$("sidebar"); sb.innerHTML='<div class="side-title">系統</div>';
-    const sysCount=s=>store.items.filter(t=>t.system===s).length;
+    // 側欄件數只算進行中的需求(不含 已上線、暫停開發)
+    const openItem=t=>!NO_OVERDUE[t.status];
+    const sysCount=s=>store.items.filter(t=>t.system===s&&openItem(t)).length;
     const alertCount=val=>store.items.filter(t=>{
       if(val && t.system!==val) return false;
       const overdue=isOverdue(t);
@@ -766,7 +771,7 @@
       b.onclick=()=>{ systemFilter=(systemFilter===val?null:val); render(); };
       sb.appendChild(b);
     };
-    mkSide("全部", null, store.items.length);
+    mkSide("全部", null, store.items.filter(openItem).length);
     SYSTEMS.forEach(s=>mkSide(s, s, sysCount(s)));
 
     renderFilterOptions(); renderTrash();
