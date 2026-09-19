@@ -25,8 +25,8 @@ jobs:
 
       - name: Send digest
         env:
-          JSONBIN_BIN_ID: ${{ secrets.JSONBIN_BIN_ID }}
-          JSONBIN_KEY: ${{ secrets.JSONBIN_KEY }}
+          GAS_URL: ${{ secrets.GAS_URL }}
+          GAS_TOKEN: ${{ secrets.GAS_TOKEN }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node send-digest.js
