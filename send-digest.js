@@ -8,7 +8,9 @@ const TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT  = process.env.TELEGRAM_CHAT_ID;
 const TZ_OFFSET = 8; // 台灣 UTC+8。若在其他時區，改成你的時差。
 
-const STATUSES = ["待評估", "開發中", "待測試", "阻塞", "已上線"];
+const STATUSES = ["待評估", "未釐清", "釐清中", "開發中", "待測試", "暫停開發", "阻塞", "已上線"];
+const S_EMOJI = { "待評估": "🟨", "未釐清": "❔", "釐清中": "🔍", "開發中": "🟦", "待測試": "🟪", "暫停開發": "⏸", "阻塞": "🟥", "已上線": "🟩" };
+const NO_OVERDUE = { "已上線": 1, "暫停開發": 1 }; // 不列入即將到期 / 逾期
 const PRI_LABEL = { P0: "P0", P1: "P1", P2: "P2", TBD: "不確定" };
 
 function localToday() {
@@ -96,10 +98,11 @@ async function main() {
   items.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
 
   let msg = `📋 <b>排程項目日報</b> (${today.slice(5)})\n`;
-  msg += `🟨待評估 ${counts["待評估"]} · 🟦開發中 ${counts["開發中"]} · 🟪待測試 ${counts["待測試"]} · 🟥阻塞 ${counts["阻塞"]} · 🟩已上線 ${counts["已上線"]}\n`;
+  // 各狀態件數(0 件的不列,避免太長)
+  msg += (STATUSES.filter(s => counts[s]).map(s => `${S_EMOJI[s]}${s} ${counts[s]}`).join(" · ") || "目前沒有需求") + "\n";
 
   const soon = items
-    .filter(t => t.status !== "已上線" && t.due)
+    .filter(t => !NO_OVERDUE[t.status] && t.due)
     .map(t => ({ t, d: daysLeft(t.due, today) }))
     .filter(x => x.d !== null && x.d <= 2)
     .sort((a, b) => a.d - b.d);

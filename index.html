@@ -118,6 +118,7 @@
   .pri-P1{color:#5a4712;background:rgba(168,132,46,.22);border:1px solid rgba(168,132,46,.4)}
   .pri-P2{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
   .pri-TBD{color:var(--ink-soft);background:transparent;border:1px dashed var(--ink-faint)}
+  .badge.rank{color:#fff;background:var(--ink)}
   .sys{font-size:11.5px;font-weight:600;color:var(--pine-deep);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.28);padding:3px 9px;border-radius:20px}
   .plat{font-size:11.5px;font-weight:600;color:var(--blue);background:rgba(62,110,158,.1);border:1px solid rgba(62,110,158,.28);padding:3px 9px;border-radius:20px}
   .cat{font-size:11.5px;color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line);padding:3px 9px;border-radius:20px}
@@ -388,9 +389,10 @@
         <div class="field"><label>ID / Ticket</label><input class="mono" id="f_ticket" placeholder="JIRA-123 / TRELLO 編號"></div>
         <div class="field"><label>優先級</label><select id="f_priority"><option value="P0">P0 · 立即處理</option><option value="P1" selected>P1 · 本版必備</option><option value="P2">P2 · 可延後</option><option value="TBD">不確定 · 待確認</option></select></div>
         <div class="field"><label>系統</label><select id="f_system"><option>KR系統</option><option>DY系統</option><option>LJ系統</option></select></div>
+        <div class="field"><label>順位(數字越小越先做)</label><input class="mono" id="f_rank" type="number" min="1" step="1" placeholder="選填,例:1"></div>
         <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
         <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
-        <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>開發中</option><option>待測試</option><option>阻塞</option><option>已上線</option></select></div>
+        <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>未釐清</option><option>釐清中</option><option>開發中</option><option>待測試</option><option>暫停開發</option><option>阻塞</option><option>已上線</option></select></div>
         <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
         <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
           <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
@@ -415,9 +417,13 @@
 (function(){
   "use strict";
   const LKEY="reqtracker.v2", DAY=86400000;
-  const STATUSES=["待評估","開發中","待測試","阻塞","已上線"];
-  const SCOLOR={"待評估":"var(--gold)","開發中":"var(--blue)","待測試":"var(--teal)","阻塞":"var(--brick)","已上線":"var(--grey)"};
-  const SBG={"待評估":"rgba(168,132,46,.15)","開發中":"rgba(62,110,158,.15)","待測試":"rgba(46,139,132,.15)","阻塞":"rgba(180,68,46,.15)","已上線":"rgba(139,133,120,.15)"};
+  const STATUSES=["待評估","未釐清","釐清中","開發中","待測試","暫停開發","阻塞","已上線"];
+  const SCOLOR={"待評估":"var(--gold)","未釐清":"#8A4B8F","釐清中":"#B5577A","開發中":"var(--blue)","待測試":"var(--teal)","暫停開發":"#6F7682","阻塞":"var(--brick)","已上線":"var(--grey)"};
+  const SBG={"待評估":"rgba(168,132,46,.15)","未釐清":"rgba(138,75,143,.14)","釐清中":"rgba(181,87,122,.14)","開發中":"rgba(62,110,158,.15)","待測試":"rgba(46,139,132,.15)","暫停開發":"rgba(111,118,130,.15)","阻塞":"rgba(180,68,46,.15)","已上線":"rgba(139,133,120,.15)"};
+  // 已上線、暫停開發 不算逾期(不亮紅點、不列入日報的到期清單)
+  const NO_OVERDUE={"已上線":1,"暫停開發":1};
+  function isOverdue(t){ return !NO_OVERDUE[t.status] && t.due && daysLeft(t.due)<0; }
+  const S_EMOJI={"待評估":"🟨","未釐清":"❔","釐清中":"🔍","開發中":"🟦","待測試":"🟪","暫停開發":"⏸","阻塞":"🟥","已上線":"🟩"};
   const $=id=>document.getElementById(id);
 
   let store=loadLocal();
@@ -443,7 +449,9 @@
   const PRI_LABEL={P0:"P0",P1:"P1",P2:"P2",TBD:"不確定"}, PRI_ORDER={P0:0,P1:1,P2:2,TBD:3};
   function priKey(p){ return PRI_LABEL[p]?p:"TBD"; }
   function priLabel(p){ return PRI_LABEL[priKey(p)]; }
-  const FIELD_LABEL={ticket:"Ticket",priority:"優先級",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
+  // 順位:DY / LJ 表格用數字排先後;沒填 = 排在有順位的後面
+  function rankNum(t){ const n=parseInt(t&&t.rank,10); return n>0?n:Infinity; }
+  const FIELD_LABEL={ticket:"Ticket",priority:"優先級",rank:"順位",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
     category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復",gmNote:"GM 備註"};
   const LONG_FIELDS={desc:1,note:1,gmNote:1};
   function addHistory(t,changes){
@@ -735,7 +743,7 @@
       pl.appendChild(b);
     });
 
-    const overdue=store.items.filter(t=>t.status!=="已上線"&&t.due&&daysLeft(t.due)<0);
+    const overdue=store.items.filter(isOverdue);
     const blocked=store.items.filter(t=>t.status==="阻塞");
     const ab=$("alertbar"); const parts=[];
     if(overdue.length) parts.push('<b>⚠ '+overdue.length+' 件逾期</b>');
@@ -747,7 +755,7 @@
     const sysCount=s=>store.items.filter(t=>t.system===s).length;
     const alertCount=val=>store.items.filter(t=>{
       if(val && t.system!==val) return false;
-      const overdue=t.status!=="已上線"&&t.due&&daysLeft(t.due)<0;
+      const overdue=isOverdue(t);
       return overdue || t.status==="阻塞";
     }).length;
     const mkSide=(label,val,n)=>{
@@ -780,6 +788,9 @@
       items.sort((a,b)=>{
         const la=a.status==="已上線"?1:0, lb=b.status==="已上線"?1:0;
         if(la!==lb) return la-lb;
+        // 有「順位」的排前面,數字小的先;沒有順位的再依優先級
+        const ra=rankNum(a), rb=rankNum(b);
+        if(ra!==rb) return ra-rb;
         if(prio(a.priority)!==prio(b.priority)) return prio(a.priority)-prio(b.priority);
         const da=a.due||"9999", db=b.due||"9999"; return da<db?-1:da>db?1:0;
       });
@@ -810,16 +821,28 @@
     }
   }
 
-  // PM / 需求單位 的篩選選項依現有資料自動產生
+  // 表單裡預設的類別;各系統表格用到清單外的類別時,會自動加進選項
+  const BASE_CATS=[...$("f_category").options].map(o=>o.value);
+  function allCategories(){
+    const extra=[...new Set(store.items.map(t=>(t.category||"").trim()).filter(c=>c&&!BASE_CATS.includes(c)))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+    return BASE_CATS.concat(extra);
+  }
+  // 下拉選單沒有這個值時先補上,避免編輯時被清成空白
+  function ensureOption(sel,val){
+    if(val&&![...sel.options].some(o=>o.value===val)){ const o=document.createElement("option"); o.value=val; o.textContent=val; sel.appendChild(o); }
+  }
+  // 類別 / PM / 需求單位 的篩選選項依現有資料自動產生
   function renderFilterOptions(){
-    const fill=(id,key,allLabel)=>{
-      const sel=$(id), vals=[...new Set(store.items.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
+    const fill=(id,key,allLabel,list)=>{
+      const sel=$(id), vals=list||[...new Set(store.items.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant"));
       if(fx[key]&&!vals.includes(fx[key])) vals.unshift(fx[key]);
       sel.innerHTML='<option value="">'+allLabel+'</option>'+vals.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join("");
       sel.value=fx[key];
     };
+    if(document.activeElement!==$("fx_category")) fill("fx_category","category","全部類別",allCategories());
     if(document.activeElement!==$("fx_pm")) fill("fx_pm","pm","全部 PM");
     if(document.activeElement!==$("fx_unit")) fill("fx_unit","unit","全部需求單位");
+    allCategories().forEach(c=>ensureOption($("f_category"),c));
     ["priority","category","pm","unit"].forEach(k=>$("fx_"+k).classList.toggle("on",!!fx[k]));
   }
 
@@ -878,6 +901,7 @@
         (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
         (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
         '<span class="badge pri-'+priKey(t.priority)+'">'+esc(priLabel(t.priority))+'</span>'+
+        (rankNum(t)!==Infinity?'<span class="badge rank" title="順位:數字越小越先做">順位 '+rankNum(t)+'</span>':'')+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
         '<span class="cat">'+esc(t.category)+'</span>'+
         '<select class="status-sel" data-status style="color:'+SCOLOR[t.status]+';background-color:'+SBG[t.status]+'">'+
@@ -1022,7 +1046,7 @@
     editingId=null; $("saveAdd").textContent="加入需求";
   }
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
-  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{
     // 已在新增中:不清空已填的內容,只把游標移回標題
     if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
@@ -1033,8 +1057,8 @@
   $("cancelAdd").onclick=closeForm;
   function openEdit(t){
     editingId=t.id;
-    $("f_ticket").value=t.ticket||""; $("f_priority").value=priKey(t.priority); $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
-    $("f_desc").value=t.desc||""; $("f_category").value=t.category; $("f_status").value=t.status; $("f_unit").value=t.unit||"";
+    $("f_ticket").value=t.ticket||""; $("f_priority").value=priKey(t.priority); $("f_rank").value=rankNum(t)!==Infinity?rankNum(t):""; $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
+    $("f_desc").value=t.desc||""; ensureOption($("f_category"),t.category); $("f_category").value=t.category||""; ensureOption($("f_status"),t.status); $("f_status").value=t.status; $("f_unit").value=t.unit||"";
     $("f_pm").value=t.pm||""; $("f_submit").value=t.submit||today(); $("f_due").value=t.due||"";
     $("f_doc").value=t.doc||""; $("f_note").value=t.note||""; $("f_gmnote").value=t.gmNote||"";
     $("saveAdd").textContent="儲存變更"; openForm(true); $("f_title").focus({preventScroll:true});
@@ -1043,7 +1067,8 @@
     const title=$("f_title").value.trim(); if(!title){ $("f_title").focus(); return; }
     const docRaw=$("f_doc").value.trim(), doc=safeUrl(docRaw);
     if(docRaw&&!doc){ alert("文件連結只接受 http:// 或 https:// 開頭的網址"); $("f_doc").focus(); return; }
-    const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, system:$("f_system").value, platform:$("f_platform").value.trim(), title,
+    const rankIn=parseInt($("f_rank").value,10);
+    const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, rank:rankIn>0?String(rankIn):"", system:$("f_system").value, platform:$("f_platform").value.trim(), title,
       desc:$("f_desc").value.trim(), category:$("f_category").value, status:$("f_status").value, unit:$("f_unit").value.trim(),
       pm:$("f_pm").value.trim(), submit:$("f_submit").value||today(), due:$("f_due").value||"",
       doc, note:$("f_note").value.trim(), gmNote:$("f_gmnote").value.trim() };
@@ -1112,8 +1137,9 @@
   function buildDigest(){
     const counts={}; STATUSES.forEach(s=>counts[s]=0); store.items.forEach(t=>counts[t.status]++);
     let msg="📋 <b>排程項目日報</b> ("+today().slice(5)+")\n";
-    msg+="🟨待評估 "+counts["待評估"]+" · 🟦開發中 "+counts["開發中"]+" · 🟪待測試 "+counts["待測試"]+" · 🟥阻塞 "+counts["阻塞"]+" · 🟩已上線 "+counts["已上線"]+"\n";
-    const soon=store.items.filter(t=>t.status!=="已上線"&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
+    // 各狀態件數(0 件的不列,避免太長)
+    msg+=(STATUSES.filter(s=>counts[s]).map(s=>S_EMOJI[s]+s+" "+counts[s]).join(" · ")||"目前沒有需求")+"\n";
+    const soon=store.items.filter(t=>!NO_OVERDUE[t.status]&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
     if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+" ("+tgEsc(priLabel(t.priority))+")\n"; }); }
     const blocked=store.items.filter(t=>t.status==="阻塞");
     if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
