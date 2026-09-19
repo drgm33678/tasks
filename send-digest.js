@@ -1,6 +1,10 @@
-// 每日排程項目摘要 → Telegram
+// 排程項目 → Telegram
+//   node send-digest.js          每日日報(逾期 / 阻塞)
+//   node send-digest.js weekly   每週一的技術追蹤清單
 // 由 GitHub Actions 定時執行。所有密鑰從環境變數(GitHub Secrets)讀取。
 // 需要 Node 18+（GitHub runner 內建 fetch）。
+
+const MODE = (process.argv[2] || process.env.DIGEST_MODE || "daily").toLowerCase();
 
 const GAS_URL   = process.env.GAS_URL;   // Apps Script Web App 網址
 const GAS_TOKEN = process.env.GAS_TOKEN; // 存取金鑰
@@ -91,8 +95,32 @@ async function main() {
   if (!json.ok) throw new Error("雲端讀取失敗：" + (json.error === "unauthorized" ? "存取金鑰錯誤（檢查 GAS_TOKEN）" : json.error));
   const items = (json.record && Array.isArray(json.record.items)) ? json.record.items : [];
 
-  // 2) 組摘要（格式與網站內一致）
+  // 2) 組訊息:每日日報,或每週一的技術追蹤清單(執行時帶參數 weekly)
   const today = localToday();
+  const msg = MODE === "weekly" ? buildWeekly(items, today) : buildDaily(items, today);
+
+  // 3) 發送到 Telegram(太長時拆成多則依序送出)
+  const parts = splitTg(msg);
+  for (const part of parts) {
+    const tg = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: CHAT,
+        text: part,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      })
+    });
+    const tj = await tg.json();
+    if (!tj.ok) throw new Error("Telegram 發送失敗：" + (tj.description || JSON.stringify(tj)));
+  }
+
+  console.log("已發送" + (MODE === "weekly" ? "每週追蹤清單" : "日報") + "，共 " + items.length + " 筆需求，分 " + parts.length + " 則。");
+}
+
+/* ---------- 每日日報(格式與網站內一致) ---------- */
+function buildDaily(items, today) {
   const counts = {};
   STATUSES.forEach(s => counts[s] = 0);
   items.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
@@ -124,25 +152,68 @@ async function main() {
   }
 
   if (!soon.length && !blocked.length) msg += "\n✅ 沒有逾期或阻塞，一切順利。";
+  return msg;
+}
 
-  // 3) 發送到 Telegram(太長時拆成多則依序送出)
-  const parts = splitTg(msg);
-  for (const part of parts) {
-    const tg = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: CHAT,
-        text: part,
-        parse_mode: "HTML",
-        disable_web_page_preview: true
-      })
+/* ---------- 每週一:需向技術追蹤的項目 ---------- */
+// 納入的狀態(已上線、暫停開發、阻塞不列入;阻塞每天的日報已經會列)
+const WEEKLY_STATUSES = { "待評估": 1, "未釐清": 1, "釐清中": 1, "開發中": 1, "待測試": 1 };
+const STALE_DAYS = 14;      // 超過幾天沒有任何修改算「久未更新」
+const SYSTEM_ORDER = ["KR", "DY", "LJ"];
+
+// 最後一次修改的時間:網站或表格的修改時間 → 修改紀錄 → 都沒有就用提交日期
+function lastTouched(t) {
+  let last = Number(t.updatedAt) || 0;
+  (t.history || []).forEach(h => { if (h && h.at > last) last = h.at; });
+  if (last > 86400000) return last; // 排除舊資料的預設值
+  const s = Date.parse((t.submit || "") + "T00:00:00+08:00");
+  return isNaN(s) ? null : s;
+}
+
+function buildWeekly(items, today) {
+  const now = Date.now();
+  const rows = [];
+  items.forEach(t => {
+    if (!WEEKLY_STATUSES[t.status]) return;
+    const reasons = [];
+    if (!String(t.note || "").trim()) reasons.push("無技術回復");
+    const last = lastTouched(t);
+    const idle = last == null ? null : Math.floor((now - last) / 86400000);
+    if (idle != null && idle >= STALE_DAYS) reasons.push(idle + "天未更新");
+    if (reasons.length) rows.push({ t, reasons });
+  });
+
+  const count = r => rows.filter(x => x.reasons.some(s => s.indexOf(r) >= 0)).length;
+  let msg = `📌 <b>每週技術追蹤清單</b> (${today.slice(5)})\n`;
+  if (!rows.length) return msg + "\n✅ 目前沒有需要追蹤的項目。";
+  msg += `共 ${rows.length} 筆需追蹤:無技術回復 ${count("無技術回復")} · ${STALE_DAYS}天以上未更新 ${count("天未更新")}\n`;
+
+  // 依系統分組;組內依 順位 → 優先級 → 提交日期(舊的先)
+  const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
+  const rankOf = t => { const n = parseInt(t.rank, 10); return n > 0 ? n : Infinity; };
+  const priOrder = { P0: 0, P1: 1, P2: 2, TBD: 3 };
+  const groups = {};
+  rows.forEach(x => { (groups[sysOf(x.t)] = groups[sysOf(x.t)] || []).push(x); });
+  SYSTEM_ORDER.concat(["其他"]).forEach(sys => {
+    const list = groups[sys];
+    if (!list) return;
+    list.sort((a, b) => {
+      const ra = rankOf(a.t), rb = rankOf(b.t);
+      if (ra !== rb) return ra - rb;
+      const pa = priOrder[a.t.priority] ?? 3, pb = priOrder[b.t.priority] ?? 3;
+      if (pa !== pb) return pa - pb;
+      return String(a.t.submit || "9999").localeCompare(String(b.t.submit || "9999"));
     });
-    const tj = await tg.json();
-    if (!tj.ok) throw new Error("Telegram 發送失敗：" + (tj.description || JSON.stringify(tj)));
-  }
-
-  console.log("已發送日報，共 " + items.length + " 筆需求，分 " + parts.length + " 則。");
+    msg += `\n<b>${sys === "其他" ? "未分系統" : sys + " 系統"}</b>(${list.length} 筆)\n`;
+    list.forEach(({ t, reasons }) => {
+      const tags = [t.status];
+      if (rankOf(t) !== Infinity) tags.push("順位" + rankOf(t));
+      else if (t.priority && t.priority !== "TBD") tags.push(t.priority);
+      if (t.pm) tags.push("PM " + t.pm);
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 80))}(${tgEsc(tags.join(" · "))})— ${reasons.join("、")}\n`;
+    });
+  });
+  return msg;
 }
 
 main().catch(e => { console.error(e.message || e); process.exit(1); });
