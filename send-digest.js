@@ -156,6 +156,7 @@ function buildDaily(items, today) {
 }
 
 /* ---------- 每週一:需向技術追蹤的項目 ---------- */
+// 列入條件:狀態在下列之中 + 有優先級 P0/P1/P2 或有順位 + N 天以上未更新
 // 納入的狀態(已上線、暫停開發、阻塞不列入;阻塞每天的日報已經會列)
 const WEEKLY_STATUSES = { "待評估": 1, "未釐清": 1, "釐清中": 1, "開發中": 1, "待測試": 1 };
 const STALE_DAYS = 14;      // 超過幾天沒有任何修改算「久未更新」
@@ -175,18 +176,20 @@ function buildWeekly(items, today) {
   const rows = [];
   items.forEach(t => {
     if (!WEEKLY_STATUSES[t.status]) return;
+    // 只追蹤排定了重要性的:有優先級 P0/P1/P2,或有順位(優先級「不確定」又沒順位的不列)
+    const hasPriority = /^P[0-2]$/.test(String(t.priority || ""));
+    const hasRank = parseInt(t.rank, 10) > 0;
+    if (!hasPriority && !hasRank) return;
     const reasons = [];
-    if (!String(t.note || "").trim()) reasons.push("無技術回復");
     const last = lastTouched(t);
     const idle = last == null ? null : Math.floor((now - last) / 86400000);
     if (idle != null && idle >= STALE_DAYS) reasons.push(idle + "天未更新");
     if (reasons.length) rows.push({ t, reasons });
   });
 
-  const count = r => rows.filter(x => x.reasons.some(s => s.indexOf(r) >= 0)).length;
   let msg = `📌 <b>每週技術追蹤清單</b> (${today.slice(5)})\n`;
   if (!rows.length) return msg + "\n✅ 目前沒有需要追蹤的項目。";
-  msg += `共 ${rows.length} 筆需追蹤:無技術回復 ${count("無技術回復")} · ${STALE_DAYS}天以上未更新 ${count("天未更新")}\n`;
+  msg += `共 ${rows.length} 筆超過 ${STALE_DAYS} 天沒有更新(有優先級或順位的需求)\n`;
 
   // 依系統分組;組內依 順位 → 優先級 → 提交日期(舊的先)
   const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
