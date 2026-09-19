@@ -159,16 +159,22 @@ function buildDaily(items, today) {
 // 列入條件:狀態在下列之中 + 有優先級 P0/P1/P2 或有順位 + N 天以上未更新
 // 納入的狀態(已上線、暫停開發、阻塞不列入;阻塞每天的日報已經會列)
 const WEEKLY_STATUSES = { "待評估": 1, "未釐清": 1, "釐清中": 1, "開發中": 1, "待測試": 1 };
-const STALE_DAYS = 14;      // 超過幾天沒有任何修改算「久未更新」
+const STALE_DAYS = 7;       // 超過幾天沒有任何修改算「久未更新」
 const SYSTEM_ORDER = ["KR", "DY", "LJ"];
 
-// 最後一次修改的時間:網站或表格的修改時間 → 修改紀錄 → 都沒有就用提交日期
+// 最後一次「真正的內容修改」:修改紀錄裡有人改了欄位(網站上改,或表格改了同步過來)。
+// 不算更新:從表格同步建立、匯入備份、復原、自動補上系統。從沒真正改過的,以提交日期起算。
+const NOT_REAL_UPDATE = { _sheet: 1, _import: 1, _restore: 1 };
 function lastTouched(t) {
-  let last = Number(t.updatedAt) || 0;
-  (t.history || []).forEach(h => { if (h && h.at > last) last = h.at; });
-  if (last > 86400000) return last; // 排除舊資料的預設值
+  let last = 0;
+  (t.history || []).forEach(h => {
+    if (!h || !(h.at > 0) || NOT_REAL_UPDATE[h.field]) return;
+    if (h.field === "system" && h.by === "Google 表格") return;
+    if (h.at > last) last = h.at;
+  });
   const s = Date.parse((t.submit || "") + "T00:00:00+08:00");
-  return isNaN(s) ? null : s;
+  if (!isNaN(s) && s > last) last = s;
+  return last > 0 ? last : null;
 }
 
 function buildWeekly(items, today) {
