@@ -117,7 +117,6 @@
   .pri-P0{color:#fff;background:var(--brick)}
   .pri-P1{color:#5a4712;background:rgba(168,132,46,.22);border:1px solid rgba(168,132,46,.4)}
   .pri-P2{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
-  .pri-TBD{color:var(--ink-soft);background:transparent;border:1px dashed var(--ink-faint)}
   .badge.rank{color:#fff;background:var(--ink)}
   .sys{font-size:11.5px;font-weight:600;color:var(--pine-deep);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.28);padding:3px 9px;border-radius:20px}
   .plat{font-size:11.5px;font-weight:600;color:var(--blue);background:rgba(62,110,158,.1);border:1px solid rgba(62,110,158,.28);padding:3px 9px;border-radius:20px}
@@ -256,7 +255,7 @@
 
   <div class="filterbar">
     <input id="q" type="search" placeholder="搜尋 標題 / Ticket / 描述 / 技術回復…" autocomplete="off">
-    <select id="fx_priority"><option value="">全部優先級</option><option>P0</option><option>P1</option><option>P2</option><option value="TBD">不確定</option></select>
+    <select id="fx_priority"><option value="">全部優先級</option><option>P0</option><option>P1</option><option>P2</option><option value="__none">未填優先級</option></select>
     <select id="fx_category"><option value="">全部類別</option><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select>
     <select id="fx_pm"><option value="">全部 PM</option></select>
     <select id="fx_unit"><option value="">全部需求單位</option></select>
@@ -387,7 +386,7 @@
       <div class="addform-title" id="addFormTitle">新增需求</div>
       <div class="fgrid">
         <div class="field"><label>ID / Ticket</label><input class="mono" id="f_ticket" placeholder="JIRA-123 / TRELLO 編號"></div>
-        <div class="field"><label>優先級</label><select id="f_priority"><option value="P0">P0 · 立即處理</option><option value="P1" selected>P1 · 本版必備</option><option value="P2">P2 · 可延後</option><option value="TBD">不確定 · 待確認</option></select></div>
+        <div class="field"><label>優先級</label><select id="f_priority"><option value="" selected>(未填)</option><option value="P0">P0 · 立即處理</option><option value="P1">P1 · 本版必備</option><option value="P2">P2 · 可延後</option></select></div>
         <div class="field"><label>系統</label><select id="f_system"><option>KR系統</option><option>DY系統</option><option>LJ系統</option></select></div>
         <div class="field"><label>順位(數字越小越先做)</label><input class="mono" id="f_rank" type="number" min="1" step="1" placeholder="選填,例:1"></div>
         <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
@@ -445,10 +444,11 @@
   const MEKEY="reqtracker.me";
   let me=""; try{ me=localStorage.getItem(MEKEY)||""; }catch(e){}
 
-  // 優先級:存 P0/P1/P2/TBD,畫面與通知顯示對應文字;排序時「不確定」排在 P2 之後
-  const PRI_LABEL={P0:"P0",P1:"P1",P2:"P2",TBD:"不確定"}, PRI_ORDER={P0:0,P1:1,P2:2,TBD:3};
-  function priKey(p){ return PRI_LABEL[p]?p:"TBD"; }
-  function priLabel(p){ return PRI_LABEL[priKey(p)]; }
+  // 優先級:選填,存 P0/P1/P2;空白或舊資料的 TBD 都當成未填(不顯示標籤、排序排最後)
+  const PRI_LABEL={P0:"P0",P1:"P1",P2:"P2"}, PRI_ORDER={P0:0,P1:1,P2:2};
+  function priKey(p){ return PRI_LABEL[p]?p:""; }
+  function priLabel(p){ return priKey(p); }
+  const NO_PRI="__none"; // 篩選用:未填優先級
   // 順位:DY / LJ 表格用數字排先後;沒填 = 排在有順位的後面
   function rankNum(t){ const n=parseInt(t&&t.rank,10); return n>0?n:Infinity; }
   const FIELD_LABEL={ticket:"Ticket",priority:"優先級",rank:"順位",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
@@ -779,7 +779,7 @@
     let items=store.items.slice();
     if(systemFilter) items=items.filter(t=>t.system===systemFilter);
     if(filter) items=items.filter(t=>t.status===filter);
-    if(fx.priority) items=items.filter(t=>priKey(t.priority)===fx.priority);
+    if(fx.priority) items=items.filter(t=>priKey(t.priority)===(fx.priority===NO_PRI?"":fx.priority));
     if(fx.category) items=items.filter(t=>t.category===fx.category);
     if(fx.pm) items=items.filter(t=>(t.pm||"")===fx.pm);
     if(fx.unit) items=items.filter(t=>(t.unit||"")===fx.unit);
@@ -789,7 +789,7 @@
     $("fxClear").style.display=extraFiltered?"":"none";
     manualDrag = (store.sortMode==="manual" && !filter && !systemFilter && !extraFiltered);
     if(store.sortMode!=="manual"){
-      const prio=p=>PRI_ORDER[priKey(p)];
+      const prio=p=>{ const k=priKey(p); return k?PRI_ORDER[k]:3; };
       items.sort((a,b)=>{
         const la=a.status==="已上線"?1:0, lb=b.status==="已上線"?1:0;
         if(la!==lb) return la-lb;
@@ -801,7 +801,7 @@
       });
     }
     $("sortToggle").textContent = "排序:"+(store.sortMode==="manual"?"手動(可拖曳)":"自動");
-    $("listTitle").textContent = [systemFilter, filter, fx.priority&&priLabel(fx.priority), fx.category, fx.pm&&("PM "+fx.pm), fx.unit, q&&("「"+query.trim()+"」")].filter(Boolean).join(" · ") || "全部需求";
+    $("listTitle").textContent = [systemFilter, filter, fx.priority&&(fx.priority===NO_PRI?"未填優先級":fx.priority), fx.category, fx.pm&&("PM "+fx.pm), fx.unit, q&&("「"+query.trim()+"」")].filter(Boolean).join(" · ") || "全部需求";
     $("listCount").textContent=items.length+" 筆";
     const list=$("cardList"); list.innerHTML="";
     if(items.length===0){
@@ -905,7 +905,7 @@
       '<div class="card-top">'+
         (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
         (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
-        '<span class="badge pri-'+priKey(t.priority)+'">'+esc(priLabel(t.priority))+'</span>'+
+        (priKey(t.priority)?'<span class="badge pri-'+priKey(t.priority)+'">'+priKey(t.priority)+'</span>':'')+
         (rankNum(t)!==Infinity?'<span class="badge rank" title="順位:數字越小越先做">順位 '+rankNum(t)+'</span>':'')+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
         '<span class="cat">'+esc(t.category)+'</span>'+
@@ -966,7 +966,7 @@
     if(h.field==="_sheet") return "從 Google 表格同步建立";
     const label=FIELD_LABEL[h.field]||h.field;
     if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
-    const v=x=>(x==null||x==="")?"(空)":String(h.field==="priority"?priLabel(x):x);
+    const v=x=>{ const s=h.field==="priority"?priKey(x):x; return (s==null||s==="")?"(未填)":String(s); };
     return label+":"+v(h.from)+" → "+v(h.to);
   }
   function historyHtml(t){
@@ -990,7 +990,7 @@
     if(!tgConfigured()||store.tg.blockAlert===false) return;
     const clip=(s,n)=>{ s=String(s||""); return s.length>n?s.slice(0,n)+"…":s; };
     let msg="🚧 <b>需求阻塞</b>\n["+tgEsc(t.ticket||"—")+"] "+tgEsc(clip(t.title,150))+"\n";
-    msg+="系統:"+tgEsc(t.system||"—")+" · 優先級:"+tgEsc(priLabel(t.priority))+(t.pm?" · PM:"+tgEsc(t.pm):"");
+    msg+="系統:"+tgEsc(t.system||"—")+(priKey(t.priority)?" · 優先級:"+priKey(t.priority):"")+(t.pm?" · PM:"+tgEsc(t.pm):"");
     if(t.note) msg+="\n卡點:"+tgLinkify(clip(String(t.note).split("\n")[0],200));
     msg+="\n操作人:"+tgEsc(me||"未署名");
     sendTg(msg).then(()=>toast("已推送阻塞警示到 Telegram")).catch(e=>toast("阻塞警示傳送失敗:"+e.message));
@@ -1051,7 +1051,7 @@
     editingId=null; $("saveAdd").textContent="加入需求";
   }
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
-  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value="P1"; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{
     // 已在新增中:不清空已填的內容,只把游標移回標題
     if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
@@ -1145,7 +1145,7 @@
     // 各狀態件數(0 件的不列,避免太長)
     msg+=(STATUSES.filter(s=>counts[s]).map(s=>S_EMOJI[s]+s+" "+counts[s]).join(" · ")||"目前沒有需求")+"\n";
     const soon=store.items.filter(t=>!NO_OVERDUE[t.status]&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
-    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+" ("+tgEsc(priLabel(t.priority))+")\n"; }); }
+    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+(priKey(t.priority)?" ("+priKey(t.priority)+")":"")+"\n"; }); }
     const blocked=store.items.filter(t=>t.status==="阻塞");
     if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
     if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";

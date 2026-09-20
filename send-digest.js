@@ -15,7 +15,8 @@ const TZ_OFFSET = 8; // 台灣 UTC+8。若在其他時區，改成你的時差�
 const STATUSES = ["待評估", "未釐清", "釐清中", "開發中", "待測試", "暫停開發", "阻塞", "已上線"];
 const S_EMOJI = { "待評估": "🟨", "未釐清": "❔", "釐清中": "🔍", "開發中": "🟦", "待測試": "🟪", "暫停開發": "⏸", "阻塞": "🟥", "已上線": "🟩" };
 const NO_OVERDUE = { "已上線": 1, "暫停開發": 1 }; // 不列入即將到期 / 逾期
-const PRI_LABEL = { P0: "P0", P1: "P1", P2: "P2", TBD: "不確定" };
+// 優先級是選填,只有 P0/P1/P2;空白或舊資料的 TBD 都當未填
+const priKey = p => (/^P[0-2]$/.test(String(p || "")) ? String(p) : "");
 
 function localToday() {
   // 把 UTC 時間平移到當地時區，取 YYYY-MM-DD
@@ -138,7 +139,7 @@ function buildDaily(items, today) {
     msg += "\n⚠️ <b>即將到期 / 逾期</b>\n";
     soon.forEach(({ t, d }) => {
       const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag} (${tgEsc(PRI_LABEL[t.priority] || "不確定")})\n`;
+      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
     });
   }
 
@@ -177,8 +178,8 @@ function buildWeekly(items, today) {
   const rows = [];
   items.forEach(t => {
     if (!WEEKLY_STATUSES[t.status]) return;
-    // 只追蹤排定了重要性的:有優先級 P0/P1/P2,或有順位(優先級「不確定」又沒順位的不列)
-    const hasPriority = /^P[0-2]$/.test(String(t.priority || ""));
+    // 只追蹤排定了重要性的:有優先級 P0/P1/P2,或有順位(兩者都沒填的不列)
+    const hasPriority = !!priKey(t.priority);
     const hasRank = parseInt(t.rank, 10) > 0;
     if (!hasPriority && !hasRank) return;
     // 網站資料最後變動後超過 N 天沒有任何變動
@@ -193,7 +194,7 @@ function buildWeekly(items, today) {
   // 依系統分組;組內依 順位 → 優先級 → 提交日期(舊的先)
   const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
   const rankOf = t => { const n = parseInt(t.rank, 10); return n > 0 ? n : Infinity; };
-  const priOrder = { P0: 0, P1: 1, P2: 2, TBD: 3 };
+  const priOrder = { P0: 0, P1: 1, P2: 2 };
   const groups = {};
   rows.forEach(x => { (groups[sysOf(x.t)] = groups[sysOf(x.t)] || []).push(x); });
   SYSTEM_ORDER.concat(["其他"]).forEach(sys => {
@@ -202,14 +203,14 @@ function buildWeekly(items, today) {
     list.sort((a, b) => {
       const ra = rankOf(a.t), rb = rankOf(b.t);
       if (ra !== rb) return ra - rb;
-      const pa = priOrder[a.t.priority] ?? 3, pb = priOrder[b.t.priority] ?? 3;
+      const pa = priOrder[priKey(a.t.priority)] ?? 3, pb = priOrder[priKey(b.t.priority)] ?? 3;
       if (pa !== pb) return pa - pb;
       return String(a.t.submit || "9999").localeCompare(String(b.t.submit || "9999"));
     });
     msg += `\n<b>${sys === "其他" ? "未分系統" : sys + " 系統"}</b>(${list.length} 筆)\n`;
     // 只顯示 順位或優先級(有順位顯示順位,沒有就顯示 P0/P1/P2)、編號、標題
     list.forEach(({ t }) => {
-      const level = rankOf(t) !== Infinity ? "順位" + rankOf(t) : String(t.priority);
+      const level = rankOf(t) !== Infinity ? "順位" + rankOf(t) : priKey(t.priority);
       msg += `• ${tgEsc(level)} [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 80))}\n`;
     });
   });
