@@ -524,7 +524,8 @@
     const r=await fetch(store.cloud.bin.trim(),{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
       body:JSON.stringify(Object.assign({k:store.cloud.key,op},extra||{}))});
     if(!r.ok) throw httpError("連線失敗",r.status);
-    let j; try{ j=await r.json(); }catch(e){ throw httpError("雲端回應格式不對,請確認 Web App 的存取權是「任何人」",403); }
+    // Google 偶爾會暫時回傳錯誤網頁而不是 JSON:當成暫時性錯誤自動重試,不要停掉同步
+    let j; try{ j=await r.json(); }catch(e){ throw httpError("雲端回應格式不對(若一直出現,請確認 Web App 的存取權是「任何人」)",502); }
     if(j.ok) return j;
     if(j.conflict){ const e=new Error("雲端資料剛被更新"); e.conflict=true; throw e; }
     throw httpError(j.error==="unauthorized"?"存取金鑰錯誤":("雲端錯誤:"+(j.error||"未知")), j.status||500);
@@ -534,7 +535,20 @@
   // ifRev:只有雲端版本仍是這個版本時才寫入;回傳寫入後的新版本號
   async function cloudWrite(data,ifRev){ return (await gas("write",{record:data,ifRev})).rev; }
 
-  function pruneTombstones(list){ const min=Date.now()-TOMBSTONE_DAYS*DAY; return (list||[]).filter(d=>d&&d.id&&d.at>=min); }
+  // 刪除紀錄保留 60 天;從 Google 表格同步來的需求過期後改留精簡紀錄(系統 + 編號)永久保存,
+  // 否則表格那一列還在時,Apps Script 下次同步會把它當成新需求加回來
+  function sheetStub(d){
+    if(d.sheet) return d;
+    const t=d.item||{}, gs=/^gs-/.test(d.id);
+    if(!gs&&!t._sheet) return null;
+    const im=String(d.id).match(/^gs-(KR|DY|LJ)-/), sm=String(t.system||"").match(/^(KR|DY|LJ)/i);
+    const sys=t._sys||(im&&im[1])||(sm&&sm[1].toUpperCase())||"KR";
+    return {id:d.id, at:d.at, sheet:{sys, ticket:String(t.ticket||"")}};
+  }
+  function pruneTombstones(list){
+    const min=Date.now()-TOMBSTONE_DAYS*DAY;
+    return (list||[]).map(d=>(!d||!d.id)?null:(d.at>=min&&!d.sheet)?d:sheetStub(d)).filter(Boolean);
+  }
   function payload(rev){
     return {items:store.items, deleted:pruneTombstones(store.deleted), tg:store.tg, sortMode:store.sortMode,
       sortAt:store.sortAt||0, orderAt:store.orderAt||0, _rev:rev, _updated:new Date().toISOString()};
@@ -895,7 +909,7 @@
     el.style.setProperty("--stripe",SCOLOR[t.status]);
     const dl=daysLeft(t.due);
     let daysHtml="—", daysCls="ok";
-    if(t.status==="已上線"){ daysHtml=t.launched?("上線 "+t.launched):"已上線"; }
+    if(t.status==="已上線"){ daysHtml=t.launched?("上線 "+esc(t.launched)):"已上線"; }
     else if(dl===null){ daysHtml="未定"; daysCls=""; }
     else if(dl<0){ daysHtml="逾期 "+(-dl)+" 天"; daysCls="over"; }
     else if(dl===0){ daysHtml="今天到期"; daysCls="warn"; }
@@ -918,8 +932,8 @@
       '<div class="meta">'+
         '<div class="m span"><span class="k">平台</span><span class="v">'+esc(t.platform||"—")+'</span></div>'+
         metaCell("需求單位",esc(t.unit||"—"))+metaCell("負責 PM",esc(t.pm||"—"))+
-        metaCell("提交日期",'<span class="mono">'+(t.submit||"—")+'</span>')+
-        metaCell("預計上線",'<span class="mono">'+(t.due||"—")+'</span>')+
+        metaCell("提交日期",'<span class="mono">'+esc(t.submit||"—")+'</span>')+
+        metaCell("預計上線",'<span class="mono">'+esc(t.due||"—")+'</span>')+
         metaCell("剩餘天數",'<span class="days '+daysCls+'">'+daysHtml+'</span>')+
         metaCell("文件",!t.doc?"—":safeUrl(t.doc)?'<a href="'+esc(safeUrl(t.doc))+'" target="_blank" rel="noopener noreferrer">開啟 ↗</a>':'<span title="連結格式不安全,已停用">⚠ 連結無效</span>')+
       '</div>'+
