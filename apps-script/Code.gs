@@ -201,6 +201,7 @@ function syncNow() {
     }
   });
 
+  let blocked = [], tg = null, saved = false;
   if (pending.length) {
     // 只有「讀資料 → 套用 → 寫回」這一小段需要鎖
     const lock = LockService.getScriptLock();
@@ -213,16 +214,20 @@ function syncNow() {
         const res = applySheetRows(rec, p.parsed.rows, Date.now(), today, p.cfg.sys);
         res.warnings.forEach(w => console.warn('[' + p.cfg.sys + '] ' + w));
         changed = changed || res.changed;
+        blocked = blocked.concat(res.blocked);
         console.log('[' + p.cfg.sys + '] 同步完成:新增 ' + res.stats.created + ' 筆、更新 ' + res.stats.updated + ' 筆、首次對應 ' + res.stats.linked +
           ' 筆、略過(網站已刪除)' + res.stats.skippedDeleted + ' 筆;表格共 ' + p.parsed.rows.length + ' 筆有編號的需求');
       });
-      if (changed) writeStore(rec, curRev);
+      if (changed) { writeStore(rec, curRev); saved = true; }
       pending.forEach(p => props.setProperty('SHEET_HASH_' + p.cfg.sys, p.hash));
       props.deleteProperty('SHEET_HASH'); // 舊版單一表格用的,不再需要
+      tg = rec.tg || {};
     } finally {
       lock.releaseLock();
     }
   }
+  // 表格改成「阻塞」:寫入成功後推 Telegram(在鎖外面送,不耽誤網站儲存)
+  if (saved && blocked.length) notifyBlockedFromSheet(blocked, tg);
   if (errors.length) throw new Error('部分表格讀取失敗:' + errors.join(' / '));
 }
 
@@ -249,6 +254,65 @@ function resetSyncState() {
   props.deleteProperty('SHEET_HASH');
   SYNC.SYSTEMS.forEach(sys => props.deleteProperty('SHEET_HASH_' + sys));
   console.log('已重置,下一次同步會重新比對整張表');
+}
+
+/* ========================= Telegram 阻塞通知 ========================= */
+// Bot Token / Chat ID 用網站「Telegram 通知」裡設定的(會同步到資料檔);
+// 網站上關掉「阻塞立即通知」時這裡也不送
+
+function notifyBlockedFromSheet(list, tg) {
+  const token = String(tg.token || '').trim(), chat = String(tg.chat || '').trim();
+  if (!token || !chat) { console.log('有 ' + list.length + ' 筆改成阻塞,但網站尚未設定 Telegram,略過通知'); return; }
+  if (tg.blockAlert === false) { console.log('網站關閉了「阻塞立即通知」,略過 ' + list.length + ' 筆'); return; }
+  const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; };
+  let msg = '🚧 <b>需求阻塞</b>(Google 表格同步)';
+  list.forEach(t => {
+    msg += '\n\n[' + tgEsc(t.ticket || '—') + '] ' + tgEsc(clip(t.title, 150)) + '\n';
+    msg += '系統:' + tgEsc(t.system || '—') + (/^P[0-2]$/.test(t.priority || '') ? ' · 優先級:' + t.priority : '') + (t.pm ? ' · PM:' + tgEsc(t.pm) : '');
+    if (t.note) msg += '\n卡點:' + tgLinkify(clip(String(t.note).split('\n')[0], 200));
+  });
+  splitTg(msg).forEach(part => {
+    const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ chat_id: chat, text: part, parse_mode: 'HTML', disable_web_page_preview: true }),
+    });
+    if (r.getResponseCode() !== 200) console.error('阻塞通知傳送失敗 (' + r.getResponseCode() + '):' + r.getContentText().slice(0, 200));
+  });
+  console.log('已推送阻塞通知:' + list.map(t => t.ticket).join('、'));
+}
+
+// Telegram HTML 模式:使用者輸入的文字必須轉義 & < >,否則整則訊息會被拒收
+function tgEsc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function safeUrl(u) {
+  u = String(u || '').trim();
+  if (!u) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u;
+  return /^https?:\/\/[^\s"<>]+$/i.test(u) ? u : '';
+}
+// [顯示文字](網址) 轉成 Telegram 連結,其餘文字轉義
+function tgLinkify(s) {
+  s = String(s == null ? '' : s);
+  const re = /\[([^\]\n]{1,200})\]\(([^)\s]+)\)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(s))) {
+    const href = safeUrl(m[2]);
+    out += tgEsc(s.slice(last, m.index)) + (href ? '<a href="' + href.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">' + tgEsc(m[1]) + '</a>' : tgEsc(m[0]));
+    last = m.index + m[0].length;
+  }
+  return out + tgEsc(s.slice(last));
+}
+// Telegram 單則上限 4096 字:依換行拆成多則
+function splitTg(text, max) {
+  max = max || 3900;
+  const parts = [];
+  let cur = '';
+  String(text).split('\n').forEach(line => {
+    while (line.length > max) { if (cur) { parts.push(cur); cur = ''; } parts.push(line.slice(0, max)); line = line.slice(max); }
+    if (cur.length + line.length + 1 > max) { parts.push(cur); cur = ''; }
+    cur += (cur ? '\n' : '') + line;
+  });
+  if (cur.trim()) parts.push(cur);
+  return parts;
 }
 
 function sha256(s) {
@@ -489,6 +553,7 @@ function applySheetRows(rec, rows, now, today, sys) {
   const stats = { created: 0, updated: 0, linked: 0, skippedDeleted: 0 };
   const warnings = [];
   let changed = false;
+  const blocked = []; // 這次同步被表格改成「阻塞」的需求(包含新增時就是阻塞的)
 
   const byKey = {};
   rec.items.forEach(t => { const k = tkey(t.ticket); if (k && itemSystem(t) === sys && !byKey[k]) byKey[k] = t; });
@@ -526,6 +591,7 @@ function applySheetRows(rec, rows, now, today, sys) {
       item._sheetAt = now;
       rec.items.push(item);
       byKey[key] = item;
+      if (item.status === '阻塞') blocked.push(item);
       stats.created++; changed = true;
       return;
     }
@@ -538,6 +604,7 @@ function applySheetRows(rec, rows, now, today, sys) {
         if (!str(item[f]) && str(S[f])) { changes.push(chg(f, '', S[f])); item[f] = S[f]; }
       });
       if (changes.length) { applyStatusSide(item, today); record(item, changes, now); }
+      if (item.status === '阻塞' && changes.some(c => c.field === 'status')) blocked.push(item);
       item._sheet = pick(S, fields);
       item._sheetAt = now;
       stats.linked++; changed = true;
@@ -562,11 +629,12 @@ function applySheetRows(rec, rows, now, today, sys) {
     if (changes.length) {
       if (changes.some(c => c.field === 'status')) applyStatusSide(item, today);
       record(item, changes, now);
+      if (item.status === '阻塞' && changes.some(c => c.field === 'status')) blocked.push(item);
       stats.updated++;
     }
   });
 
-  return { changed, stats, warnings };
+  return { changed, stats, warnings, blocked };
 
   function str(v) { return v == null ? '' : String(v).trim(); }
   function pick(o, keys) { const r = {}; keys.forEach(k => { r[k] = str(o[k]); }); return r; }

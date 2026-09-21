@@ -1153,16 +1153,26 @@
     }catch(e){ tgMsg("失敗:"+e.message,"err"); }
   };
   function clipText(s,n){ s=String(s||""); return s.length>n?s.slice(0,n)+"…":s; }
+  // 依系統分組(KR → DY → LJ → 未分系統);與 GitHub Actions 的 send-digest.js 格式一致
   function buildDigest(){
-    const counts={}; STATUSES.forEach(s=>counts[s]=0); store.items.forEach(t=>counts[t.status]++);
     let msg="📋 <b>排程項目日報</b> ("+today().slice(5)+")\n";
-    // 各狀態件數(0 件的不列,避免太長)
-    msg+=(STATUSES.filter(s=>counts[s]).map(s=>S_EMOJI[s]+s+" "+counts[s]).join(" · ")||"目前沒有需求")+"\n";
-    const soon=store.items.filter(t=>!NO_OVERDUE[t.status]&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
-    if(soon.length){ msg+="\n⚠️ <b>即將到期 / 逾期</b>\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+(priKey(t.priority)?" ("+priKey(t.priority)+")":"")+"\n"; }); }
-    const blocked=store.items.filter(t=>t.status==="阻塞");
-    if(blocked.length){ msg+="\n🚧 <b>阻塞中</b>\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
-    if(!soon.length&&!blocked.length) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
+    if(!store.items.length) return msg+"\n目前沒有需求";
+    const sysOf=t=>{ const m=String(t.system||"").match(/^(KR|DY|LJ)/i); return m?m[1].toUpperCase():"其他"; };
+    const groups={}; store.items.forEach(t=>{ (groups[sysOf(t)]=groups[sysOf(t)]||[]).push(t); });
+    let alerts=0;
+    ["KR","DY","LJ","其他"].forEach(sys=>{
+      const list=groups[sys]; if(!list) return;
+      const counts={}; STATUSES.forEach(s=>counts[s]=0); list.forEach(t=>{ if(counts[t.status]!==undefined) counts[t.status]++; });
+      msg+="\n<b>"+(sys==="其他"?"未分系統":sys+" 系統")+"</b>\n";
+      // 各狀態件數(0 件的、已上線、暫停開發不列,避免太長)
+      msg+=(STATUSES.filter(s=>counts[s]&&!NO_OVERDUE[s]).map(s=>S_EMOJI[s]+s+" "+counts[s]).join(" · ")||"目前沒有進行中的需求")+"\n";
+      const soon=list.filter(t=>!NO_OVERDUE[t.status]&&t.due).map(t=>({t,d:daysLeft(t.due)})).filter(x=>x.d<=2).sort((a,b)=>a.d-b.d);
+      if(soon.length){ msg+="⚠️ 即將到期 / 逾期\n"; soon.forEach(({t,d})=>{ const tag=d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"); msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+tag+(priKey(t.priority)?" ("+priKey(t.priority)+")":"")+"\n"; }); }
+      const blocked=list.filter(t=>t.status==="阻塞");
+      if(blocked.length){ msg+="🚧 阻塞中\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
+      alerts+=soon.length+blocked.length;
+    });
+    if(!alerts) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
     return msg;
   }
   $("digestBtn").onclick=async ()=>{

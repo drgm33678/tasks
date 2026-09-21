@@ -17,6 +17,9 @@ const S_EMOJI = { "待評估": "🟨", "未釐清": "❔", "釐清中": "🔍", 
 const NO_OVERDUE = { "已上線": 1, "暫停開發": 1 }; // 不列入即將到期 / 逾期
 // 優先級是選填,只有 P0/P1/P2;空白或舊資料的 TBD 都當未填
 const priKey = p => (/^P[0-2]$/.test(String(p || "")) ? String(p) : "");
+// 日報、每週清單都依系統分組
+const SYSTEM_ORDER = ["KR", "DY", "LJ"];
+const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
 
 function localToday() {
   // 把 UTC 時間平移到當地時區，取 YYYY-MM-DD
@@ -121,38 +124,49 @@ async function main() {
 }
 
 /* ---------- 每日日報(格式與網站內一致) ---------- */
+// 依系統分組(KR → DY → LJ → 未分系統);每組列 狀態件數、即將到期 / 逾期、阻塞中
 function buildDaily(items, today) {
-  const counts = {};
-  STATUSES.forEach(s => counts[s] = 0);
-  items.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
-
   let msg = `📋 <b>排程項目日報</b> (${today.slice(5)})\n`;
-  // 各狀態件數(0 件的不列,避免太長)
-  msg += (STATUSES.filter(s => counts[s]).map(s => `${S_EMOJI[s]}${s} ${counts[s]}`).join(" · ") || "目前沒有需求") + "\n";
+  if (!items.length) return msg + "\n目前沒有需求";
+  let alerts = 0;
+  const groups = {};
+  items.forEach(t => { (groups[sysOf(t)] = groups[sysOf(t)] || []).push(t); });
+  SYSTEM_ORDER.concat(["其他"]).forEach(sys => {
+    const list = groups[sys];
+    if (!list) return;
+    const counts = {};
+    STATUSES.forEach(s => counts[s] = 0);
+    list.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
 
-  const soon = items
-    .filter(t => !NO_OVERDUE[t.status] && t.due)
-    .map(t => ({ t, d: daysLeft(t.due, today) }))
-    .filter(x => x.d !== null && x.d <= 2)
-    .sort((a, b) => a.d - b.d);
-  if (soon.length) {
-    msg += "\n⚠️ <b>即將到期 / 逾期</b>\n";
-    soon.forEach(({ t, d }) => {
-      const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
-    });
-  }
+    msg += `\n<b>${sys === "其他" ? "未分系統" : sys + " 系統"}</b>\n`;
+    // 各狀態件數(0 件的、已上線、暫停開發不列,避免太長)
+    msg += (STATUSES.filter(s => counts[s] && !NO_OVERDUE[s]).map(s => `${S_EMOJI[s]}${s} ${counts[s]}`).join(" · ") || "目前沒有進行中的需求") + "\n";
 
-  const blocked = items.filter(t => t.status === "阻塞");
-  if (blocked.length) {
-    msg += "\n🚧 <b>阻塞中</b>\n";
-    blocked.forEach(t => {
-      const note = t.note ? " — " + tgLinkify(clip(String(t.note).split("\n")[0], 200)) : "";
-      msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))}${note}\n`;
-    });
-  }
+    const soon = list
+      .filter(t => !NO_OVERDUE[t.status] && t.due)
+      .map(t => ({ t, d: daysLeft(t.due, today) }))
+      .filter(x => x.d !== null && x.d <= 2)
+      .sort((a, b) => a.d - b.d);
+    if (soon.length) {
+      msg += "⚠️ 即將到期 / 逾期\n";
+      soon.forEach(({ t, d }) => {
+        const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
+        msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
+      });
+    }
 
-  if (!soon.length && !blocked.length) msg += "\n✅ 沒有逾期或阻塞，一切順利。";
+    const blocked = list.filter(t => t.status === "阻塞");
+    if (blocked.length) {
+      msg += "🚧 阻塞中\n";
+      blocked.forEach(t => {
+        const note = t.note ? " — " + tgLinkify(clip(String(t.note).split("\n")[0], 200)) : "";
+        msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))}${note}\n`;
+      });
+    }
+    alerts += soon.length + blocked.length;
+  });
+
+  if (!alerts) msg += "\n✅ 沒有逾期或阻塞，一切順利。";
   return msg;
 }
 
@@ -161,7 +175,6 @@ function buildDaily(items, today) {
 // 納入的狀態(已上線、暫停開發、阻塞不列入;阻塞每天的日報已經會列)
 const WEEKLY_STATUSES = { "待評估": 1, "未釐清": 1, "釐清中": 1, "開發中": 1, "待測試": 1 };
 const STALE_DAYS = 7;       // 超過幾天沒有任何修改算「久未更新」
-const SYSTEM_ORDER = ["KR", "DY", "LJ"];
 
 // 網站資料最後變動的時間(網站上的修改、Google 表格同步建立或同步修改都算);
 // 沒有變動時間的舊資料,改用修改紀錄,再沒有就用提交日期
@@ -192,7 +205,6 @@ function buildWeekly(items, today) {
   msg += `共 ${rows.length} 筆超過 ${STALE_DAYS} 天沒有更新(有優先級或順位的需求)\n`;
 
   // 依系統分組;組內依 順位 → 優先級 → 提交日期(舊的先)
-  const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
   const rankOf = t => { const n = parseInt(t.rank, 10); return n > 0 ? n : Infinity; };
   const priOrder = { P0: 0, P1: 1, P2: 2 };
   const groups = {};
