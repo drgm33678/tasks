@@ -31,6 +31,7 @@ const SYNC = {
   INTERVAL_MINUTES: 5,      // 可用 1 / 5 / 10 / 15 / 30
   HIST_MAX: 50,
   DATA_FILE_NAME: '排程項目資料.json',
+  SKIP_DEVICE: ['LJ'],      // 這些系統的「平台」不併入表格的「裝置」欄
 };
 
 /* ========================= 第一次設定 ========================= */
@@ -377,8 +378,8 @@ function readSheetRows(src) {
       if (d.platform || cols.platform === undefined) row.platform = d.platform || '';
     }
     if (cols.platform !== undefined && row.platform === undefined) row.platform = (get('platform') || '').trim();
-    // 「裝置」併進平台,例:XO · PC
-    if (cols.device !== undefined) {
+    // 「裝置」併進平台,例:XO · PC(SKIP_DEVICE 裡的系統不併)
+    if (cols.device !== undefined && SYNC.SKIP_DEVICE.indexOf(src.system) < 0) {
       const dev = (get('device') || '').trim();
       row.platform = [row.platform || '', dev].filter(Boolean).join(' · ');
     }
