@@ -401,7 +401,7 @@
         <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
         <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>未釐清</option><option>釐清中</option><option>開發中</option><option>待測試</option><option>暫停開發</option><option>阻塞</option><option>已上線</option></select></div>
         <div class="field full"><label class="check-field"><input type="checkbox" id="f_urgent"> 🔥 重要(需即時處理)</label>
-          <div class="hint">標記後會列在左側「重要」分類與每日日報最上方,直到狀態改成「已上線」</div></div>
+          <div class="hint">標記後會列在左側「重要」分類與每日日報最上方,直到狀態改成「暫停開發」或「已上線」</div></div>
         <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
         <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
           <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
@@ -447,7 +447,9 @@
   const HIST_MAX=50;         // 每筆需求保留的修改紀錄筆數
 
   // 搜尋 / 篩選 / 顯示狀態(只影響自己的畫面,不同步)
-  let query="", fx={priority:"",category:"",pm:"",unit:""}, showLaunched=false;
+  let query="", fx={priority:"",category:"",pm:"",unit:""};
+  // 收在清單最下方、預設不展開的狀態(依序顯示)
+  const COLLAPSED={"暫停開發":1,"已上線":1}, showCollapsed={};
   const openHistory=new Set();
 
   // 操作人:記在修改紀錄與通知裡;只存本機(還原機可用網址 #me=名字 帶入)
@@ -461,9 +463,10 @@
   const NO_PRI="__none"; // 篩選用:未填優先級
   // 順位:DY / LJ 表格用數字排先後;沒填 = 排在有順位的後面
   function rankNum(t){ const n=parseInt(t&&t.rank,10); return n>0?n:Infinity; }
-  // 重要(需即時處理):可跨系統標記,狀態變成「已上線」後自動不再算重要(標記保留,改回其他狀態會再出現)
+  // 重要(需即時處理):可跨系統標記,狀態變成「暫停開發」或「已上線」後自動不再算重要(標記保留,改回其他狀態會再出現)
   const URGENT="__urgent"; // 左側分類用的特殊值
-  function isUrgent(t){ return !!t.urgent && t.status!=="已上線"; }
+  const URGENT_END={"暫停開發":1,"已上線":1};
+  function isUrgent(t){ return !!t.urgent && !URGENT_END[t.status]; }
   // 左側選的分類:系統,或「重要」
   function inSide(t){ return !systemFilter || (systemFilter===URGENT?isUrgent(t):t.system===systemFilter); }
   function sideLabel(){ return systemFilter===URGENT?"重要":systemFilter; }
@@ -845,20 +848,20 @@
       e.innerHTML='<div class="et">'+(filtered?"這個篩選下沒有需求":"還沒有任何需求")+'</div><div>'+(filtered?"點「清除篩選」、左側「全部」或上方狀態卡可取消篩選。":"點「新增需求」建立第一筆工單。")+'</div>';
       list.appendChild(e); return;
     }
-    // 已上線的需求收在最下方,預設收合;篩選「已上線」或搜尋時自動展開
-    const active=items.filter(t=>t.status!=="已上線"), launched=items.filter(t=>t.status==="已上線");
-    active.forEach(t=>list.appendChild(card(t)));
-    if(launched.length){
-      const expanded=showLaunched||filter==="已上線"||!!q;
-      if(filter!=="已上線"){
+    // 暫停開發、已上線的需求收在最下方(暫停開發在上),預設收合;篩選該狀態或搜尋時自動展開
+    items.filter(t=>!COLLAPSED[t.status]).forEach(t=>list.appendChild(card(t)));
+    Object.keys(COLLAPSED).forEach(s=>{
+      const group=items.filter(t=>t.status===s); if(!group.length) return;
+      const expanded=showCollapsed[s]||filter===s||!!q;
+      if(filter!==s){
         const g=document.createElement("button");
         g.className="group-toggle"+(expanded?" open":"");
-        g.innerHTML='<span class="caret">▸</span>已上線 · '+launched.length+' 筆'+(q&&!showLaunched?'(搜尋中自動展開)':expanded?'':'(點擊展開)');
-        g.onclick=()=>{ showLaunched=!expanded; render(); };
+        g.innerHTML='<span class="caret">▸</span>'+s+' · '+group.length+' 筆'+(q&&!showCollapsed[s]?'(搜尋中自動展開)':expanded?'':'(點擊展開)');
+        g.onclick=()=>{ showCollapsed[s]=!expanded; render(); };
         list.appendChild(g);
       }
-      if(expanded) launched.forEach(t=>list.appendChild(card(t)));
-    }
+      if(expanded) group.forEach(t=>list.appendChild(card(t)));
+    });
   }
 
   // 表單裡預設的類別;各系統表格用到清單外的類別時,會自動加進選項
@@ -962,7 +965,7 @@
       (t.note?'<div class="technote"><b>技術回復</b>'+linkify(t.note)+'</div>':'')+
       (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+linkify(t.gmNote)+'</div>':'')+
       '<div class="card-actions">'+
-        (t.status!=="已上線"?'<button class="icon-btn'+(t.urgent?' urgent-on':'')+'" data-urgent>'+(t.urgent?'取消重要':'🔥 設為重要')+'</button>':'')+
+        (!URGENT_END[t.status]?'<button class="icon-btn'+(t.urgent?' urgent-on':'')+'" data-urgent>'+(t.urgent?'取消重要':'🔥 設為重要')+'</button>':'')+
         '<button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
       (openHistory.has(t.id)?historyHtml(t):'');
     const sel=el.querySelector("[data-status]");
@@ -1096,7 +1099,7 @@
     editingId=null; $("saveAdd").textContent="加入需求";
   }
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
-  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_urgent").checked=systemFilter===URGENT; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_urgent").checked=false; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{
     // 已在新增中:不清空已填的內容,只把游標移回標題
     if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
@@ -1191,7 +1194,7 @@
     if(!store.items.length) return msg+"\n目前沒有需求";
     const sysOf=t=>{ const m=String(t.system||"").match(/^(KR|DY|LJ)/i); return m?m[1].toUpperCase():"其他"; };
     const groups={}; store.items.forEach(t=>{ (groups[sysOf(t)]=groups[sysOf(t)]||[]).push(t); });
-    // 🔥 重要(需即時處理):跨系統列在最上方,直到已上線;依 系統 → 順位 → 優先級 排序
+    // 🔥 重要(需即時處理):跨系統列在最上方,直到暫停開發或已上線;依 系統 → 順位 → 優先級 排序
     const SYS_IDX={KR:0,DY:1,LJ:2,"其他":3}, prio=t=>{ const k=priKey(t.priority); return k?PRI_ORDER[k]:3; };
     const urgent=store.items.filter(isUrgent).sort((a,b)=>(SYS_IDX[sysOf(a)]-SYS_IDX[sysOf(b)])||(rankNum(a)-rankNum(b))||(prio(a)-prio(b)));
     if(urgent.length){

@@ -19,8 +19,9 @@ const NO_OVERDUE = { "已上線": 1, "暫停開發": 1 }; // 不列入即將到�
 const priKey = p => (/^P[0-2]$/.test(String(p || "")) ? String(p) : "");
 // 日報、每週清單都依系統分組
 const SYSTEM_ORDER = ["KR", "DY", "LJ"];
-// 重要(需即時處理):網站上勾選的標記,已上線後就不再列
-const isUrgent = t => !!t.urgent && t.status !== "已上線";
+// 重要(需即時處理):網站上勾選的標記,狀態改成暫停開發或已上線後就不再列
+const URGENT_END = { "暫停開發": 1, "已上線": 1 };
+const isUrgent = t => !!t.urgent && !URGENT_END[t.status];
 const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
 
 function localToday() {
@@ -133,7 +134,7 @@ function buildDaily(items, today) {
   const groups = {};
   items.forEach(t => { (groups[sysOf(t)] = groups[sysOf(t)] || []).push(t); });
 
-  // 🔥 重要(需即時處理):跨系統列在最上方,直到已上線;依 系統 → 順位 → 優先級 排序
+  // 🔥 重要(需即時處理):跨系統列在最上方,直到暫停開發或已上線;依 系統 → 順位 → 優先級 排序
   const sysIdx = t => { const i = SYSTEM_ORDER.indexOf(sysOf(t)); return i < 0 ? SYSTEM_ORDER.length : i; };
   const rankOf = t => { const n = parseInt(t.rank, 10); return n > 0 ? n : Infinity; };
   const priOrder = t => ({ P0: 0, P1: 1, P2: 2 }[priKey(t.priority)] ?? 3);
