@@ -143,9 +143,9 @@ function buildDaily(items, today) {
     msg += `\n🔥 <b>重要(需即時處理)</b> ${urgent.length} 件\n`;
     urgent.forEach(t => {
       const d = daysLeft(t.due, today);
-      const tag = d === null ? "" : " · " + (d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`);
+      const tag = d === null ? "" : " — " + (d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`);
       const sys = sysOf(t) === "其他" ? "" : sysOf(t) + " ";
-      msg += `• ${sys}[${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${S_EMOJI[t.status] || ""}${tgEsc(t.status)}${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
+      msg += `• ${sys}[${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))}${tag}\n`;
     });
   }
   let alerts = urgent.length;
@@ -169,7 +169,7 @@ function buildDaily(items, today) {
       msg += "⚠️ 即將到期 / 逾期\n";
       soon.forEach(({ t, d }) => {
         const tag = d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`;
-        msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
+        msg += `• [${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${tag}\n`;
       });
     }
 
