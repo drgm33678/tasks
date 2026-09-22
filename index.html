@@ -118,6 +118,14 @@
   .pri-P1{color:#5a4712;background:rgba(168,132,46,.22);border:1px solid rgba(168,132,46,.4)}
   .pri-P2{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
   .badge.rank{color:#fff;background:var(--ink)}
+  .badge.urgent{color:#fff;background:#C2410C}
+  .card.urgent{border-color:rgba(194,65,12,.45);box-shadow:0 0 0 1px rgba(194,65,12,.18),var(--shadow)}
+  .side-item.urgent-side .side-label{color:#C2410C;font-weight:600}
+  .side-item.urgent-side.active{background:rgba(194,65,12,.1);border-color:rgba(194,65,12,.35)}
+  .side-sep{height:1px;background:var(--line);margin:6px 8px 8px}
+  .icon-btn.urgent-on{border-color:rgba(194,65,12,.45);color:#C2410C}
+  .check-field{display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer}
+  .check-field input{width:16px;height:16px;margin:0;accent-color:#C2410C}
   .sys{font-size:11.5px;font-weight:600;color:var(--pine-deep);background:rgba(53,103,74,.1);border:1px solid rgba(53,103,74,.28);padding:3px 9px;border-radius:20px}
   .plat{font-size:11.5px;font-weight:600;color:var(--blue);background:rgba(62,110,158,.1);border:1px solid rgba(62,110,158,.28);padding:3px 9px;border-radius:20px}
   .cat{font-size:11.5px;color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line);padding:3px 9px;border-radius:20px}
@@ -392,6 +400,8 @@
         <div class="field"><label>平台(需開發平台)</label><input id="f_platform" placeholder="FB / MT / JD / ND …"></div>
         <div class="field"><label>類別</label><select id="f_category"><option>前台</option><option>後台</option><option>前/後台</option><option>總後台</option><option>獎源</option><option>金流總後台</option><option>統計站</option></select></div>
         <div class="field"><label>目前狀態</label><select id="f_status"><option>待評估</option><option>未釐清</option><option>釐清中</option><option>開發中</option><option>待測試</option><option>暫停開發</option><option>阻塞</option><option>已上線</option></select></div>
+        <div class="field full"><label class="check-field"><input type="checkbox" id="f_urgent"> 🔥 重要(需即時處理)</label>
+          <div class="hint">標記後會列在左側「重要」分類與每日日報最上方,直到狀態改成「已上線」</div></div>
         <div class="field full"><label>需求標題</label><input id="f_title" placeholder="一句話標題"></div>
         <div class="field full"><label>問題描述 / 功能需求</label><textarea id="f_desc" placeholder="詳細說明需求內容…"></textarea>
           <div class="hint">可加連結:直接貼網址,或寫成 [顯示文字](https://網址)</div></div>
@@ -451,7 +461,13 @@
   const NO_PRI="__none"; // 篩選用:未填優先級
   // 順位:DY / LJ 表格用數字排先後;沒填 = 排在有順位的後面
   function rankNum(t){ const n=parseInt(t&&t.rank,10); return n>0?n:Infinity; }
-  const FIELD_LABEL={ticket:"Ticket",priority:"優先級",rank:"順位",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
+  // 重要(需即時處理):可跨系統標記,狀態變成「已上線」後自動不再算重要(標記保留,改回其他狀態會再出現)
+  const URGENT="__urgent"; // 左側分類用的特殊值
+  function isUrgent(t){ return !!t.urgent && t.status!=="已上線"; }
+  // 左側選的分類:系統,或「重要」
+  function inSide(t){ return !systemFilter || (systemFilter===URGENT?isUrgent(t):t.system===systemFilter); }
+  function sideLabel(){ return systemFilter===URGENT?"重要":systemFilter; }
+  const FIELD_LABEL={urgent:"重要",ticket:"Ticket",priority:"優先級",rank:"順位",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
     category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復",gmNote:"GM 備註"};
   const LONG_FIELDS={desc:1,note:1,gmNote:1};
   function addHistory(t,changes){
@@ -745,9 +761,9 @@
     const DOW=["週日","週一","週二","週三","週四","週五","週六"];
     $("dateLabel").textContent=MON[d.getMonth()]+" "+d.getDate()+" · "+DOW[d.getDay()];
     // 標題件數、狀態卡、逾期/阻塞警示都跟著左側選的系統(選「全部」時算全部)
-    const sysItems=store.items.filter(t=>!systemFilter||t.system===systemFilter);
+    const sysItems=store.items.filter(inSide);
     $("totalN").textContent=sysItems.length;
-    $("totalLabel").textContent=systemFilter?systemFilter+" ":"";
+    $("totalLabel").textContent=systemFilter?sideLabel()+" ":"";
 
     const counts={}; STATUSES.forEach(s=>counts[s]=0);
     sysItems.forEach(t=>{counts[t.status]=(counts[t.status]||0)+1;});
@@ -773,13 +789,13 @@
     const openItem=t=>!NO_OVERDUE[t.status];
     const sysCount=s=>store.items.filter(t=>t.system===s&&openItem(t)).length;
     const alertCount=val=>store.items.filter(t=>{
-      if(val && t.system!==val) return false;
+      if(val===URGENT?!isUrgent(t):(val && t.system!==val)) return false;
       const overdue=isOverdue(t);
       return overdue || t.status==="阻塞";
     }).length;
-    const mkSide=(label,val,n)=>{
+    const mkSide=(label,val,n,cls)=>{
       const b=document.createElement("button");
-      b.className="side-item"+(systemFilter===val?" active":"");
+      b.className="side-item"+(cls?" "+cls:"")+(systemFilter===val?" active":"");
       const ac=alertCount(val);
       b.innerHTML='<span class="side-label">'+label+(ac?'<span class="alert-dot" title="'+ac+' 件逾期或阻塞"></span>':'')+'</span><span class="sn">'+n+'</span>';
       b.onclick=()=>{ systemFilter=(systemFilter===val?null:val); render(); };
@@ -787,11 +803,13 @@
     };
     mkSide("全部", null, store.items.filter(openItem).length);
     SYSTEMS.forEach(s=>mkSide(s, s, sysCount(s)));
+    sb.appendChild(Object.assign(document.createElement("div"),{className:"side-sep"}));
+    mkSide("🔥 重要", URGENT, store.items.filter(isUrgent).length, "urgent-side");
 
     renderFilterOptions(); renderTrash();
 
     let items=store.items.slice();
-    if(systemFilter) items=items.filter(t=>t.system===systemFilter);
+    if(systemFilter) items=items.filter(inSide);
     if(filter) items=items.filter(t=>t.status===filter);
     if(fx.priority) items=items.filter(t=>priKey(t.priority)===(fx.priority===NO_PRI?"":fx.priority));
     if(fx.category) items=items.filter(t=>t.category===fx.category);
@@ -807,6 +825,9 @@
       items.sort((a,b)=>{
         const la=a.status==="已上線"?1:0, lb=b.status==="已上線"?1:0;
         if(la!==lb) return la-lb;
+        // 標為重要的排最前面
+        const ua=isUrgent(a)?0:1, ub=isUrgent(b)?0:1;
+        if(ua!==ub) return ua-ub;
         // 有「順位」的排前面,數字小的先;沒有順位的再依優先級
         const ra=rankNum(a), rb=rankNum(b);
         if(ra!==rb) return ra-rb;
@@ -815,7 +836,7 @@
       });
     }
     $("sortToggle").textContent = "排序:"+(store.sortMode==="manual"?"手動(可拖曳)":"自動");
-    $("listTitle").textContent = [systemFilter, filter, fx.priority&&(fx.priority===NO_PRI?"未填優先級":fx.priority), fx.category, fx.pm&&("PM "+fx.pm), fx.unit, q&&("「"+query.trim()+"」")].filter(Boolean).join(" · ") || "全部需求";
+    $("listTitle").textContent = [sideLabel(), filter, fx.priority&&(fx.priority===NO_PRI?"未填優先級":fx.priority), fx.category, fx.pm&&("PM "+fx.pm), fx.unit, q&&("「"+query.trim()+"」")].filter(Boolean).join(" · ") || "全部需求";
     $("listCount").textContent=items.length+" 筆";
     const list=$("cardList"); list.innerHTML="";
     if(items.length===0){
@@ -905,7 +926,7 @@
 
   function card(t){
     const el=document.createElement("div");
-    el.className="card"+(t.status==="已上線"?" launched":"")+(manualDrag?" draggable":"");
+    el.className="card"+(t.status==="已上線"?" launched":"")+(isUrgent(t)?" urgent":"")+(manualDrag?" draggable":"");
     el.style.setProperty("--stripe",SCOLOR[t.status]);
     const dl=daysLeft(t.due);
     let daysHtml="—", daysCls="ok";
@@ -919,6 +940,7 @@
       '<div class="card-top">'+
         (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
         (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
+        (isUrgent(t)?'<span class="badge urgent" title="重要,需即時處理">🔥 重要</span>':'')+
         (priKey(t.priority)?'<span class="badge pri-'+priKey(t.priority)+'">'+priKey(t.priority)+'</span>':'')+
         (rankNum(t)!==Infinity?'<span class="badge rank" title="順位:數字越小越先做">順位 '+rankNum(t)+'</span>':'')+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
@@ -939,7 +961,9 @@
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+linkify(t.note)+'</div>':'')+
       (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+linkify(t.gmNote)+'</div>':'')+
-      '<div class="card-actions"><button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
+      '<div class="card-actions">'+
+        (t.status!=="已上線"?'<button class="icon-btn'+(t.urgent?' urgent-on':'')+'" data-urgent>'+(t.urgent?'取消重要':'🔥 設為重要')+'</button>':'')+
+        '<button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
       (openHistory.has(t.id)?historyHtml(t):'');
     const sel=el.querySelector("[data-status]");
     sel.onchange=()=>{
@@ -952,6 +976,12 @@
       if(t.status==="阻塞") notifyBlocked(t);
     };
     sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
+    const ub=el.querySelector("[data-urgent]");
+    if(ub) ub.onclick=()=>{
+      const prev=!!t.urgent; t.urgent=!prev; touch(t);
+      addHistory(t,[{field:"urgent",from:prev,to:t.urgent}]);
+      save(); render();
+    };
     el.querySelector("[data-del]").onclick=()=>deleteItem(t);
     el.querySelector("[data-hist]").onclick=()=>{ if(openHistory.has(t.id)) openHistory.delete(t.id); else openHistory.add(t.id); render(); };
     el.querySelector("[data-edit]").onclick=()=>openEdit(t);
@@ -980,6 +1010,7 @@
     if(h.field==="_sheet") return "從 Google 表格同步建立";
     const label=FIELD_LABEL[h.field]||h.field;
     if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
+    if(h.field==="urgent") return h.to?"設為重要(需即時處理)":"取消重要";
     const v=x=>{ const s=h.field==="priority"?priKey(x):x; return (s==null||s==="")?"(未填)":String(s); };
     return label+":"+v(h.from)+" → "+v(h.to);
   }
@@ -1065,7 +1096,7 @@
     editingId=null; $("saveAdd").textContent="加入需求";
   }
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
-  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
+  function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_urgent").checked=systemFilter===URGENT; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{
     // 已在新增中:不清空已填的內容,只把游標移回標題
     if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
@@ -1076,7 +1107,7 @@
   $("cancelAdd").onclick=closeForm;
   function openEdit(t){
     editingId=t.id;
-    $("f_ticket").value=t.ticket||""; $("f_priority").value=priKey(t.priority); $("f_rank").value=rankNum(t)!==Infinity?rankNum(t):""; $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
+    $("f_ticket").value=t.ticket||""; $("f_urgent").checked=!!t.urgent; $("f_priority").value=priKey(t.priority); $("f_rank").value=rankNum(t)!==Infinity?rankNum(t):""; $("f_system").value=t.system||"KR系統"; $("f_platform").value=t.platform||""; $("f_title").value=t.title;
     $("f_desc").value=t.desc||""; ensureOption($("f_category"),t.category); $("f_category").value=t.category||""; ensureOption($("f_status"),t.status); $("f_status").value=t.status; $("f_unit").value=t.unit||"";
     $("f_pm").value=t.pm||""; $("f_submit").value=t.submit||today(); $("f_due").value=t.due||"";
     $("f_doc").value=t.doc||""; $("f_note").value=t.note||""; $("f_gmnote").value=t.gmNote||"";
@@ -1087,7 +1118,7 @@
     const docRaw=$("f_doc").value.trim(), doc=safeUrl(docRaw);
     if(docRaw&&!doc){ alert("文件連結只接受 http:// 或 https:// 開頭的網址"); $("f_doc").focus(); return; }
     const rankIn=parseInt($("f_rank").value,10);
-    const data={ ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, rank:rankIn>0?String(rankIn):"", system:$("f_system").value, platform:$("f_platform").value.trim(), title,
+    const data={ urgent:$("f_urgent").checked, ticket:$("f_ticket").value.trim(), priority:$("f_priority").value, rank:rankIn>0?String(rankIn):"", system:$("f_system").value, platform:$("f_platform").value.trim(), title,
       desc:$("f_desc").value.trim(), category:$("f_category").value, status:$("f_status").value, unit:$("f_unit").value.trim(),
       pm:$("f_pm").value.trim(), submit:$("f_submit").value||today(), due:$("f_due").value||"",
       doc, note:$("f_note").value.trim(), gmNote:$("f_gmnote").value.trim() };
@@ -1096,9 +1127,10 @@
     let target, becameBlocked=false;
     if(editing){ const t=editing;
       const norm=v=>String(v==null?"":v).trim();
-      const changes=Object.keys(data).filter(k=>norm(t[k])!==norm(data[k]))
+      const same=k=>k==="urgent"?!!t[k]===data[k]:norm(t[k])===norm(data[k]);
+      const changes=Object.keys(data).filter(k=>!same(k))
         .filter(k=>!(k==="submit"&&!norm(t[k]))) // 舊資料沒有提交日期時表單會自動補今天,不算使用者修改
-        .map(k=>LONG_FIELDS[k]?{field:k}:{field:k,from:t[k]||"",to:data[k]||""});
+        .map(k=>LONG_FIELDS[k]?{field:k}:k==="urgent"?{field:k,from:!!t[k],to:data[k]}:{field:k,from:t[k]||"",to:data[k]||""});
       becameBlocked=data.status==="阻塞"&&t.status!=="阻塞";
       Object.assign(t,data);
       if(changes.length){ touch(t); addHistory(t,changes); }
@@ -1159,7 +1191,15 @@
     if(!store.items.length) return msg+"\n目前沒有需求";
     const sysOf=t=>{ const m=String(t.system||"").match(/^(KR|DY|LJ)/i); return m?m[1].toUpperCase():"其他"; };
     const groups={}; store.items.forEach(t=>{ (groups[sysOf(t)]=groups[sysOf(t)]||[]).push(t); });
-    let alerts=0;
+    // 🔥 重要(需即時處理):跨系統列在最上方,直到已上線;依 系統 → 順位 → 優先級 排序
+    const SYS_IDX={KR:0,DY:1,LJ:2,"其他":3}, prio=t=>{ const k=priKey(t.priority); return k?PRI_ORDER[k]:3; };
+    const urgent=store.items.filter(isUrgent).sort((a,b)=>(SYS_IDX[sysOf(a)]-SYS_IDX[sysOf(b)])||(rankNum(a)-rankNum(b))||(prio(a)-prio(b)));
+    if(urgent.length){
+      msg+="\n🔥 <b>重要(需即時處理)</b> "+urgent.length+" 件\n";
+      urgent.forEach(t=>{ const d=daysLeft(t.due), tag=d==null?"":" · "+(d<0?("逾期"+(-d)+"天"):d===0?"今天到期":("剩"+d+"天"));
+        msg+="• "+(sysOf(t)==="其他"?"":sysOf(t)+" ")+"["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+" — "+(S_EMOJI[t.status]||"")+tgEsc(t.status)+tag+(priKey(t.priority)?" ("+priKey(t.priority)+")":"")+"\n"; });
+    }
+    let alerts=urgent.length;
     ["KR","DY","LJ","其他"].forEach(sys=>{
       const list=groups[sys]; if(!list) return;
       const counts={}; STATUSES.forEach(s=>counts[s]=0); list.forEach(t=>{ if(counts[t.status]!==undefined) counts[t.status]++; });
@@ -1172,7 +1212,7 @@
       if(blocked.length){ msg+="🚧 阻塞中\n"; blocked.forEach(t=>{ msg+="• ["+tgEsc(t.ticket||"—")+"] "+tgEsc(clipText(t.title,150))+(t.note?" — "+tgLinkify(clipText(String(t.note).split("\n")[0],200)):"")+"\n"; }); }
       alerts+=soon.length+blocked.length;
     });
-    if(!alerts) msg+="\n✅ 沒有逾期或阻塞,一切順利。";
+    if(!alerts) msg+="\n✅ 沒有重要、逾期或阻塞項目,一切順利。";
     return msg;
   }
   $("digestBtn").onclick=async ()=>{

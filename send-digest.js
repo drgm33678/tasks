@@ -19,6 +19,8 @@ const NO_OVERDUE = { "已上線": 1, "暫停開發": 1 }; // 不列入即將到�
 const priKey = p => (/^P[0-2]$/.test(String(p || "")) ? String(p) : "");
 // 日報、每週清單都依系統分組
 const SYSTEM_ORDER = ["KR", "DY", "LJ"];
+// 重要(需即時處理):網站上勾選的標記,已上線後就不再列
+const isUrgent = t => !!t.urgent && t.status !== "已上線";
 const sysOf = t => { const m = String(t.system || "").match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : "其他"; };
 
 function localToday() {
@@ -128,9 +130,25 @@ async function main() {
 function buildDaily(items, today) {
   let msg = `📋 <b>排程項目日報</b> (${today.slice(5)})\n`;
   if (!items.length) return msg + "\n目前沒有需求";
-  let alerts = 0;
   const groups = {};
   items.forEach(t => { (groups[sysOf(t)] = groups[sysOf(t)] || []).push(t); });
+
+  // 🔥 重要(需即時處理):跨系統列在最上方,直到已上線;依 系統 → 順位 → 優先級 排序
+  const sysIdx = t => { const i = SYSTEM_ORDER.indexOf(sysOf(t)); return i < 0 ? SYSTEM_ORDER.length : i; };
+  const rankOf = t => { const n = parseInt(t.rank, 10); return n > 0 ? n : Infinity; };
+  const priOrder = t => ({ P0: 0, P1: 1, P2: 2 }[priKey(t.priority)] ?? 3);
+  const urgent = items.filter(isUrgent)
+    .sort((a, b) => (sysIdx(a) - sysIdx(b)) || (rankOf(a) - rankOf(b)) || (priOrder(a) - priOrder(b)));
+  if (urgent.length) {
+    msg += `\n🔥 <b>重要(需即時處理)</b> ${urgent.length} 件\n`;
+    urgent.forEach(t => {
+      const d = daysLeft(t.due, today);
+      const tag = d === null ? "" : " · " + (d < 0 ? `逾期${-d}天` : d === 0 ? "今天到期" : `剩${d}天`);
+      const sys = sysOf(t) === "其他" ? "" : sysOf(t) + " ";
+      msg += `• ${sys}[${tgEsc(t.ticket || "—")}] ${tgEsc(clip(t.title, 150))} — ${S_EMOJI[t.status] || ""}${tgEsc(t.status)}${tag}${priKey(t.priority) ? ` (${priKey(t.priority)})` : ""}\n`;
+    });
+  }
+  let alerts = urgent.length;
   SYSTEM_ORDER.concat(["其他"]).forEach(sys => {
     const list = groups[sys];
     if (!list) return;
@@ -166,7 +184,7 @@ function buildDaily(items, today) {
     alerts += soon.length + blocked.length;
   });
 
-  if (!alerts) msg += "\n✅ 沒有逾期或阻塞，一切順利。";
+  if (!alerts) msg += "\n✅ 沒有重要、逾期或阻塞項目，一切順利。";
   return msg;
 }
 
