@@ -77,6 +77,16 @@
 - 每天的日報最上方會列出(見上方「每日日報」)
 - 標記只在網站上設定,Google 表格同步不會改動它
 
+### 🔎 Telegram 查詢機器人
+- 在日報的群組裡輸入 `/ask 關鍵字`,或**回覆機器人的訊息**再查;只查詢,不會修改資料
+  - 編號:`/ask 234`(只顯示編號完全相同的那筆)
+  - 標題關鍵字:`/ask 國慶休市`(繁體、簡體都查得到)
+  - 組合條件:`/ask KR 逾期`、`/ask Amy 開發中`、`/ask 重要`、`/ask 阻塞`、`/ask P0`
+- 多個關鍵字用空格分開,全部符合才列出;比對 編號、標題、系統、狀態、PM、需求單位、平台、類別、描述、技術回復、GM 備註,以及 重要 / 逾期 / 即將到期 標籤
+- 符合 3 筆以內顯示詳細進度(狀態、預計上線與剩餘天數、PM、最後更新、狀態紀錄、技術回復、GM 備註);更多筆顯示清單(最多 15 筆)
+- 只回應網站「Telegram 通知」設定的那個對話;不需要任何費用
+- 程式在 `apps-script/Code.gs` 最下方「Telegram 查詢機器人」,可調整 `BOT` 裡的筆數
+
 ### 阻塞立即通知
 | 在哪裡改成阻塞 | 誰發通知 | 多快 |
 |---|---|---|
@@ -104,6 +114,8 @@
 | `SHEET_KR` / `SHEET_DY` / `SHEET_LJ` | 各系統表格的 ID(網址中 `/d/` 與 `/edit` 之間那串) |
 | `SHEET_KR_NAME` …(選填) | 工作表分頁名稱,不填用第一個分頁 |
 | `ACCESS_TOKEN` | 存取金鑰(自動產生) |
+| `WEBAPP_URL`(選填) | `setupTelegramBot` 抓不到 Web App 網址時才需要填 |
+| `TG_WEBHOOK_SECRET`、`TG_BOT_USERNAME` | 查詢機器人自動維護,**不要手動改** |
 | `FILE_ID`、`REV`、`SHEET_HASH_*` | 程式自動維護,**不要手動改** |
 
 ### 網站(存在各自的瀏覽器裡)
@@ -134,6 +146,9 @@
 | `showAccessToken` | 在執行記錄顯示存取金鑰 |
 | `rotateAccessToken` | 換新金鑰(舊的立即失效,之後要更新網站與 GitHub Secret `GAS_TOKEN`) |
 | `setup` | 第一次設定用,已完成,不需要再執行 |
+| `setupTelegramBot` | 啟用查詢機器人(換 Bot Token 或部署網址後也要重跑) |
+| `removeTelegramBot` | 停用查詢機器人 |
+| `checkTelegramBot` | 查看機器人連線狀態,沒回應時先看這個的 `last_error_message` |
 
 ### 手動發日報 / 每週清單
 repo → Actions → 選「Daily Telegram Digest」或「Weekly Follow-up List」→ Run workflow。
@@ -180,6 +195,8 @@ repo → Actions → 選「Daily Telegram Digest」或「Weekly Follow-up List�
 | 網站顯示「備份失敗…秒後自動重試」 | 通常是網路或 Google 暫時問題,會自動重試;先不要關頁面 |
 | 沒收到日報 | repo → Actions 看最近一次執行是否紅色失敗,點進去看錯誤訊息 |
 | 表格改了網站沒變 | Apps Script → 執行項目,看 `syncNow` 的記錄;或手動執行 `syncNow` |
+| 查詢機器人沒回應 | 執行 `checkTelegramBot`;Apps Script → 執行項目 看 `doPost` 的錯誤;換過 Bot Token 要重跑 `setupTelegramBot` |
+| 網站「測試連線」抓不到 Chat ID | 啟用查詢機器人後 Telegram 不允許用這種方式抓,請手動填 Chat ID |
 | 表格阻塞沒通知 | `syncNow` 記錄是否有「已推送阻塞通知」或「略過」的原因 |
 | Actions 排程停了 | 公開 repo 60 天沒 commit 會被停用;daily 排程會自動補 commit,若仍停用到 Actions 頁面重新啟用 |
 

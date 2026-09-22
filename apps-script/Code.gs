@@ -17,6 +17,8 @@
  *  C. 部署 → 新增部署作業 → 類型「網頁應用程式」,執行身分「我」,存取權「任何人」→ 複製網址
  *  D. 執行 installTrigger:啟用 Google 表格自動同步
  *
+ * Telegram 查詢機器人(選用):重新部署後執行 setupTelegramBot,就能在群組用「/ask 關鍵字」查需求進度。
+ *
  * 忘記存取金鑰:執行 showAccessToken。懷疑金鑰外洩:執行 rotateAccessToken(之後網站與 GitHub 都要換新金鑰)。
  *
  * 這份檔案是 Apps Script 專案的備份;修改後要貼回 Apps Script 編輯器,並「管理部署作業 → 編輯 → 新版本」重新部署。
@@ -112,6 +114,8 @@ function doGet() {
 }
 
 function doPost(e) {
+  // Telegram 機器人的訊息(webhook 網址帶 ?tg=密語),見下方「Telegram 查詢機器人」
+  if (e && e.parameter && e.parameter.tg != null) return handleTelegramUpdate(e);
   let req;
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
   catch (err) { return json({ ok: false, error: '請求格式錯誤', status: 400 }); }
@@ -648,4 +652,215 @@ function applySheetRows(rec, rows, now, today, sys) {
     t.history = (t.history || []).concat(changes.map(c => Object.assign({ at, by: SYNC.BY }, c))).slice(-SYNC.HIST_MAX);
     t.updatedAt = at;
   }
+}
+
+/* ========================= Telegram 查詢機器人 ========================= */
+// 在日報的 Telegram 群組裡用「/ask 關鍵字」或回覆機器人的訊息來查需求進度(編號、標題關鍵字、PM、系統、狀態…)。
+// 只回應網站「Telegram 通知」設定的那個對話,其他人私訊機器人不會回。
+// 設定:部署新版本後執行 setupTelegramBot;停用:執行 removeTelegramBot
+
+const BOT = {
+  DETAIL_MAX: 3,    // 符合幾筆以內顯示詳細進度,超過改成清單
+  LIST_MAX: 15,     // 清單最多列幾筆
+};
+const BOT_EMOJI = { '待評估': '🟨', '未釐清': '❔', '釐清中': '🔍', '開發中': '🟦', '待測試': '🟪', '暫停開發': '⏸', '阻塞': '🟥', '已上線': '🟩' };
+const BOT_HELP = '用 /ask 加上關鍵字查詢需求進度,例如:\n' +
+  '/ask 234  (編號)\n/ask 國慶休市  (標題關鍵字)\n/ask KR 逾期\n/ask 重要\n/ask 阻塞\n/ask Amy 開發中  (PM + 狀態)\n\n' +
+  '多個關鍵字用空格分開,要全部符合才會列出。也可以直接回覆我的訊息再查。';
+
+/** 第一次設定或換網址 / 換 Bot 後執行:把 Telegram 的訊息轉到這個 Web App */
+function setupTelegramBot() {
+  const props = PropertiesService.getScriptProperties();
+  const token = String((readStore().tg || {}).token || '').trim();
+  if (!token) throw new Error('網站還沒設定 Telegram Bot Token');
+
+  // 網址用密語保護,避免別人冒充 Telegram 呼叫
+  let secret = props.getProperty('TG_WEBHOOK_SECRET');
+  if (!secret) { secret = newToken(); props.setProperty('TG_WEBHOOK_SECRET', secret); }
+  const base = String(props.getProperty('WEBAPP_URL') || ScriptApp.getService().getUrl() || '').trim();
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(base)) {
+    throw new Error('取不到 Web App 網址(' + base + ')。請在指令碼屬性加 WEBAPP_URL = 部署的網址(/exec 結尾)後再執行');
+  }
+
+  const me = tgApi(token, 'getMe', {}).result;
+  props.setProperty('TG_BOT_USERNAME', me.username);
+  tgApi(token, 'setWebhook', { url: base + '?tg=' + secret, allowed_updates: ['message'], drop_pending_updates: true });
+  tgApi(token, 'setMyCommands', { commands: [{ command: 'ask', description: '查詢需求進度,例如 /ask 234 或 /ask 國慶休市' }] });
+  console.log('Telegram 查詢機器人已啟用:@' + me.username + '\nWeb App:' + base +
+    '\n在群組輸入「/ask 關鍵字」,或回覆機器人的訊息再查。');
+}
+
+/** 停用查詢機器人(日報、阻塞通知不受影響) */
+function removeTelegramBot() {
+  const token = String((readStore().tg || {}).token || '').trim();
+  if (token) tgApi(token, 'deleteWebhook', { drop_pending_updates: true });
+  console.log('已停用 Telegram 查詢機器人');
+}
+
+/** 查看 Telegram 端的連線狀態(有錯誤時看 last_error_message) */
+function checkTelegramBot() {
+  const token = String((readStore().tg || {}).token || '').trim();
+  const info = tgApi(token, 'getWebhookInfo', {}).result;
+  if (info.url) info.url = info.url.replace(/tg=[^&]+/, 'tg=***');
+  console.log(JSON.stringify(info, null, 2));
+}
+
+function tgApi(token, method, payload) {
+  const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(payload),
+  });
+  const j = JSON.parse(r.getContentText() || '{}');
+  if (!j.ok) throw new Error('Telegram ' + method + ' 失敗:' + (j.description || r.getResponseCode()));
+  return j;
+}
+
+function handleTelegramUpdate(e) {
+  const done = HtmlService.createHtmlOutput('ok');
+  const props = PropertiesService.getScriptProperties();
+  const secret = props.getProperty('TG_WEBHOOK_SECRET');
+  if (!secret || e.parameter.tg !== secret) return done;
+
+  let update;
+  try { update = JSON.parse((e.postData && e.postData.contents) || '{}'); } catch (err) { return done; }
+  const msg = update.message;
+  if (!msg || !msg.text) return done;
+
+  // Telegram 沒收到回應時會重送同一則,記住處理過的,避免重複回答
+  const cache = CacheService.getScriptCache();
+  if (cache.get('tgu_' + update.update_id)) return done;
+  cache.put('tgu_' + update.update_id, '1', 21600);
+
+  let token = '';
+  try {
+    const rec = readStore(), tg = rec.tg || {};
+    token = String(tg.token || '').trim();
+    if (!token || String(msg.chat.id) !== String(tg.chat || '').trim()) return done; // 只回應日報那個對話
+
+    const q = botQuestion(msg, props.getProperty('TG_BOT_USERNAME'));
+    if (q === null) return done;
+    const today = Utilities.formatDate(new Date(), SYNC.TIMEZONE, 'yyyy-MM-dd');
+    botReply(token, msg, q ? botSearch(rec.items || [], q, today) : BOT_HELP);
+  } catch (err) {
+    console.error('查詢機器人錯誤:' + (err && err.stack || err));
+    if (token) { try { botReply(token, msg, '⚠️ 查詢失敗:' + tgEsc(String(err && err.message || err).slice(0, 300))); } catch (e2) {} }
+  }
+  return done;
+}
+
+/** 取出關鍵字;不是問機器人的訊息回傳 null。群組裡用 /ask、@機器人,或回覆機器人的訊息 */
+function botQuestion(msg, botName) {
+  const text = String(msg.text || '').trim(), name = String(botName || '').toLowerCase();
+  const cmd = text.match(/^\/(ask|start|help)(?:@(\w+))?(?:\s+([\s\S]*))?$/i);
+  if (cmd) {
+    if (cmd[2] && cmd[2].toLowerCase() !== name) return null;
+    return cmd[1].toLowerCase() === 'ask' ? (cmd[3] || '').trim() : '';
+  }
+  if (name && text.toLowerCase().indexOf('@' + name) >= 0) return text.replace(new RegExp('@' + name, 'ig'), '').trim();
+  const r = msg.reply_to_message;
+  if (r && r.from && r.from.is_bot && String(r.from.username || '').toLowerCase() === name) return text;
+  if (msg.chat.type === 'private') return text;
+  return null;
+}
+
+function botReply(token, msg, html) {
+  splitTg(html).forEach((part, i) => {
+    const p = { chat_id: msg.chat.id, text: part, parse_mode: 'HTML', disable_web_page_preview: true };
+    if (i === 0) p.reply_parameters = { message_id: msg.message_id, allow_sending_without_reply: true };
+    tgApi(token, 'sendMessage', p);
+  });
+}
+
+/** 關鍵字的繁體、簡體寫法(用 Google 翻譯轉換;有中文才轉,失敗就只用原字) */
+function zhVariants(w) {
+  if (!/[一-鿿]/.test(w)) return [];
+  const out = [];
+  [['zh-TW', 'zh-CN'], ['zh-CN', 'zh-TW']].forEach(p => {
+    try { out.push(LanguageApp.translate(w, p[0], p[1])); } catch (err) {}
+  });
+  return out;
+}
+
+/**
+ * 關鍵字查詢:多個關鍵字用空格分開,全部符合才列出(不分大小寫)。
+ * 比對 編號、標題、系統、狀態、PM、需求單位、平台、類別、描述、技術回復、GM 備註,
+ * 另外可用「重要」「逾期」「P0」等標籤。編號完全相同的排最前面,其次標題符合的,已上線的排最後。
+ */
+function botSearch(items, query, today, variantsOf) {
+  const norm = s => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, '');
+  const tkeyOf = s => norm(s).replace(/^#/, '');
+  const terms = String(query).split(/[\s,，、]+/).map(norm).filter(Boolean);
+  if (!terms.length) return BOT_HELP;
+  // 表格裡有繁體也有簡體:每個關鍵字同時用繁、簡兩種寫法比對
+  variantsOf = variantsOf || zhVariants;
+  const alts = terms.map(w => [...new Set([w].concat(variantsOf(w).map(norm)))].filter(Boolean));
+  const has = (hay, i) => alts[i].some(v => hay.indexOf(v) >= 0);
+
+  const days = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? Math.round((new Date(d + 'T00:00:00Z') - new Date(today + 'T00:00:00Z')) / 86400000) : null;
+  const done = t => t.status === '已上線' || t.status === '暫停開發';
+  const sysOf = t => { const m = String(t.system || '').match(/^(KR|DY|LJ)/i); return m ? m[1].toUpperCase() : ''; };
+  const tags = t => {
+    const d = days(t.due), a = [];
+    if (t.urgent && !done(t)) a.push('重要');
+    if (!done(t) && d !== null && d < 0) a.push('逾期');
+    if (!done(t) && d !== null && d >= 0 && d <= 2) a.push('即將到期');
+    return a.join(' ');
+  };
+
+  const hits = [];
+  items.forEach(t => {
+    const hay = norm([t.ticket, t.title, t.system, sysOf(t), t.status, t.pm, t.unit, t.platform, t.category,
+      /^P[0-2]$/.test(t.priority || '') ? t.priority : '', t.desc, t.note, t.gmNote, tags(t)].join('\n'));
+    if (!terms.every((w, i) => has(hay, i))) return;
+    const exact = terms.some(w => tkeyOf(t.ticket) && tkeyOf(t.ticket) === w.replace(/^#/, ''));
+    const inTitle = terms.every((w, i) => has(norm(t.title), i));
+    hits.push({ t, exact, score: (exact ? 0 : inTitle ? 1 : 2) + (t.status === '已上線' ? 10 : 0) });
+  });
+  if (!hits.length) return '找不到符合「' + tgEsc(query) + '」的需求。\n\n' + BOT_HELP;
+  // 只打一個編號時,只顯示編號完全相同的(不列出標題或描述裡剛好含這串數字的)
+  if (terms.length === 1 && hits.some(h => h.exact)) hits.splice(0, hits.length, ...hits.filter(h => h.exact));
+
+  const sysIdx = t => { const i = SYNC.SYSTEMS.indexOf(sysOf(t)); return i < 0 ? 9 : i; };
+  hits.sort((a, b) => (a.score - b.score) || (sysIdx(a.t) - sysIdx(b.t)) ||
+    String(a.t.due || '9999').localeCompare(String(b.t.due || '9999')));
+  const list = hits.map(h => h.t);
+
+  const clip = (s, n) => { s = String(s || '').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
+  const ymd = ms => Utilities.formatDate(new Date(ms), SYNC.TIMEZONE, 'MM-dd');
+  const dueTag = t => {
+    if (t.status === '已上線') return t.launched ? '上線 ' + t.launched : '';
+    const d = done(t) ? null : days(t.due);
+    return d === null ? '' : d < 0 ? '逾期' + (-d) + '天' : d === 0 ? '今天到期' : '剩' + d + '天';
+  };
+  const head = t => (sysOf(t) ? sysOf(t) + ' ' : '') + '[' + tgEsc(t.ticket || '—') + '] ' + tgEsc(clip(t.title, 120));
+
+  // 少量:顯示詳細進度
+  if (list.length <= BOT.DETAIL_MAX) {
+    return list.map(t => {
+      let last = Number(t.updatedAt) || 0;
+      (t.history || []).forEach(h => { if (h && h.at > last) last = h.at; });
+      const st = (t.history || []).filter(h => h && h.field === 'status').slice(-2)
+        .map(h => ymd(h.at) + ' ' + tgEsc(h.by || '') + ':' + tgEsc(h.from || '') + '→' + tgEsc(h.to || ''));
+      const pri = /^P[0-2]$/.test(t.priority || '') ? t.priority : '';
+      const lines = ['🔹 <b>' + head(t) + '</b>'];
+      lines.push('狀態:' + (BOT_EMOJI[t.status] || '') + tgEsc(t.status || '—') +
+        (t.urgent && !done(t) ? ' · 🔥重要' : '') + (pri ? ' · ' + pri : '') + (parseInt(t.rank, 10) > 0 ? ' · 順位' + parseInt(t.rank, 10) : ''));
+      if (t.status === '已上線') { if (t.launched) lines.push('上線日:' + tgEsc(t.launched)); }
+      else if (t.due) lines.push('預計上線:' + tgEsc(t.due) + (dueTag(t) ? '(' + dueTag(t) + ')' : ''));
+      const who = [t.pm && 'PM:' + tgEsc(t.pm), t.unit && '需求單位:' + tgEsc(t.unit), t.platform && '平台:' + tgEsc(t.platform)].filter(Boolean);
+      if (who.length) lines.push(who.join(' · '));
+      if (last) lines.push('最後更新:' + ymd(last) + (st.length ? ' · 狀態紀錄:' + st.join(';') : ''));
+      if (t.note) lines.push('技術回復:' + tgLinkify(clip(t.note, 400)));
+      if (t.gmNote) lines.push('GM 備註:' + tgLinkify(clip(t.gmNote, 300)));
+      return lines.join('\n');
+    }).join('\n\n');
+  }
+
+  // 多筆:清單
+  let out = '🔎 「' + tgEsc(query) + '」共 ' + list.length + ' 筆' + (list.length > BOT.LIST_MAX ? ',列出前 ' + BOT.LIST_MAX + ' 筆' : '') + '\n';
+  list.slice(0, BOT.LIST_MAX).forEach(t => {
+    const tag = dueTag(t);
+    out += '• ' + head(t) + ' — ' + (BOT_EMOJI[t.status] || '') + tgEsc(t.status || '—') + (tag ? ' · ' + tag : '') + '\n';
+  });
+  out += '\n用編號查詢可看詳細進度,例如 /ask ' + tgEsc(String(list[0].ticket || '').replace(/^#/, '') || '編號');
+  return out;
 }
