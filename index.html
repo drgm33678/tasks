@@ -194,6 +194,10 @@
   .me-field{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:10.5px;letter-spacing:.08em;color:var(--ink-soft)}
   .me-field input{width:96px;font-family:inherit;font-size:12.5px;letter-spacing:0;color:var(--ink);background:var(--paper-3);border:1px solid var(--line);border-radius:8px;padding:6px 9px;outline:none}
   .me-field input:focus{border-color:var(--pine)}
+  .me-field .req{color:var(--brick)}
+  .me-field input.need{border-color:var(--brick);background:rgba(180,68,46,.06)}
+  .me-field input.shake{animation:meShake .4s}
+  @keyframes meShake{20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
   .filterbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
   .filterbar input,.filterbar select{font-family:inherit;font-size:13px;color:var(--ink);background:var(--paper-2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
   .filterbar input{flex:1 1 220px;min-width:0}
@@ -253,7 +257,7 @@
       <div class="sub"><span id="dateLabel">—</span> · <span id="totalLabel"></span>共 <b id="totalN">0</b> 筆需求</div>
     </div>
     <div class="top-actions">
-      <label class="me-field" title="記錄在修改紀錄與通知裡;只存在這台瀏覽器">操作人 <input id="meName" placeholder="你的名字" autocomplete="off"></label>
+      <label class="me-field" title="必填:新增、修改、刪除等任何操作前都要先填;記錄在修改紀錄與通知裡,只存在這台瀏覽器">操作人<span class="req">*</span> <input id="meName" placeholder="請填名字" autocomplete="off"></label>
       <button class="btn ghost small" id="digestBtn">傳送今日摘要</button>
     </div>
   </div>
@@ -910,6 +914,7 @@
     });
   }
   function restoreDeleted(id,index){
+    if(!requireMe()) return;
     if(store.items.some(x=>x.id===id)) return;
     const d=store.deleted.find(x=>x.id===id&&x.item); if(!d) return;
     const t=d.item; touch(t); addHistory(t,[{field:"_restore"}]);
@@ -925,7 +930,18 @@
   ["priority","category","pm","unit"].forEach(k=>{ $("fx_"+k).onchange=()=>{ fx[k]=$("fx_"+k).value; render(); }; });
   $("fxClear").onclick=()=>{ query=""; $("q").value=""; fx={priority:"",category:"",pm:"",unit:""}; render(); };
   $("meName").value=me;
-  $("meName").addEventListener("change",()=>{ me=$("meName").value.trim(); $("meName").value=me; try{ localStorage.setItem(MEKEY,me); }catch(e){} });
+  function meUI(){ $("meName").classList.toggle("need",!me); }
+  $("meName").addEventListener("input",()=>{ me=$("meName").value.trim(); meUI(); try{ localStorage.setItem(MEKEY,me); }catch(e){} });
+  $("meName").addEventListener("change",()=>{ $("meName").value=me; });
+  meUI();
+  // 操作人必填:新增、修改、刪除、排序、匯入、傳送 Telegram 等任何操作前都要先填
+  function requireMe(){
+    if(me) return true;
+    const el=$("meName"); el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
+    el.scrollIntoView({block:"center",behavior:"smooth"}); el.focus({preventScroll:true});
+    toast("請先在右上角填寫「操作人」再操作");
+    return false;
+  }
 
   function card(t){
     const el=document.createElement("div");
@@ -971,6 +987,7 @@
     const sel=el.querySelector("[data-status]");
     sel.onchange=()=>{
       const prev=t.status; if(sel.value===prev) return;
+      if(!requireMe()){ sel.value=prev; return; }
       t.status=sel.value; touch(t);
       addHistory(t,[{field:"status",from:prev,to:t.status}]);
       if(t.status==="已上線"&&!t.launched) t.launched=today();
@@ -981,16 +998,17 @@
     sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
     const ub=el.querySelector("[data-urgent]");
     if(ub) ub.onclick=()=>{
+      if(!requireMe()) return;
       const prev=!!t.urgent; t.urgent=!prev; touch(t);
       addHistory(t,[{field:"urgent",from:prev,to:t.urgent}]);
       save(); render();
     };
-    el.querySelector("[data-del]").onclick=()=>deleteItem(t);
+    el.querySelector("[data-del]").onclick=()=>{ if(requireMe()) deleteItem(t); };
     el.querySelector("[data-hist]").onclick=()=>{ if(openHistory.has(t.id)) openHistory.delete(t.id); else openHistory.add(t.id); render(); };
-    el.querySelector("[data-edit]").onclick=()=>openEdit(t);
+    el.querySelector("[data-edit]").onclick=()=>{ if(requireMe()) openEdit(t); };
     if(manualDrag){
       el.draggable=true;
-      el.addEventListener("dragstart",e=>{ dragId=t.id; el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
+      el.addEventListener("dragstart",e=>{ if(!requireMe()){ e.preventDefault(); return; } dragId=t.id; el.classList.add("dragging"); e.dataTransfer.effectAllowed="move"; });
       el.addEventListener("dragend",()=>{ dragId=null; document.querySelectorAll(".card").forEach(c=>c.classList.remove("dragging","dragover")); if(renderPending) requestRender(); });
       el.addEventListener("dragover",e=>{ e.preventDefault(); if(dragId&&dragId!==t.id) el.classList.add("dragover"); });
       el.addEventListener("dragleave",()=>el.classList.remove("dragover"));
@@ -1043,7 +1061,7 @@
     msg+="\n操作人:"+tgEsc(me||"未署名");
     sendTg(msg).then(()=>toast("已推送阻塞警示到 Telegram")).catch(e=>toast("阻塞警示傳送失敗:"+e.message));
   }
-  $("sortToggle").onclick=()=>{ store.sortMode=(store.sortMode==="manual"?"auto":"manual"); store.sortAt=Date.now(); if(store.sortMode==="manual"){ filter=null; systemFilter=null; query=""; $("q").value=""; fx={priority:"",category:"",pm:"",unit:""}; } save(); render(); };
+  $("sortToggle").onclick=()=>{ if(!requireMe()) return; store.sortMode=(store.sortMode==="manual"?"auto":"manual"); store.sortAt=Date.now(); if(store.sortMode==="manual"){ filter=null; systemFilter=null; query=""; $("q").value=""; fx={priority:"",category:"",pm:"",unit:""}; } save(); render(); };
   function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   // Telegram HTML 模式只需轉義 & < >;未轉義時整則訊息會被拒收
   function tgEsc(s){return String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
@@ -1101,6 +1119,7 @@
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&$("addForm").classList.contains("open")) closeForm(); });
   function clearForm(){ ["f_ticket","f_platform","f_title","f_desc","f_unit","f_pm","f_doc","f_note","f_gmnote","f_rank"].forEach(i=>$(i).value=""); $("f_priority").value=""; $("f_urgent").checked=false; $("f_system").value="KR系統"; $("f_category").value="前台"; $("f_status").value="待評估"; $("f_submit").value=today(); $("f_due").value=""; }
   $("addToggle").onclick=()=>{
+    if(!requireMe()) return;
     // 已在新增中:不清空已填的內容,只把游標移回標題
     if(formOpen()&&!editingId){ $("f_title").focus({preventScroll:true}); return; }
     if(formOpen()&&editingId&&!confirm("正在編輯的內容尚未儲存,要放棄並改為新增需求嗎？")) return;
@@ -1117,6 +1136,7 @@
     $("saveAdd").textContent="儲存變更"; openForm(true); $("f_title").focus({preventScroll:true});
   }
   $("saveAdd").onclick=()=>{
+    if(!requireMe()) return;
     const title=$("f_title").value.trim(); if(!title){ $("f_title").focus(); return; }
     const docRaw=$("f_doc").value.trim(), doc=safeUrl(docRaw);
     if(docRaw&&!doc){ alert("文件連結只接受 http:// 或 https:// 開頭的網址"); $("f_doc").focus(); return; }
@@ -1153,7 +1173,7 @@
     else{ s.textContent="未設定"; s.className="sect-state st-off"; } }
   function loadTgForm(){ $("tg_token").value=store.tg.token; $("tg_chat").value=store.tg.chat; $("tg_time").value=store.tg.time||"09:00"; $("tg_auto").checked=!!store.tg.auto; $("tg_block").checked=store.tg.blockAlert!==false; }
   $("tgHead").onclick=()=>$("tgBody").classList.toggle("open");
-  $("tgSave").onclick=()=>{ store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; store.tg.blockAlert=$("tg_block").checked; store.tg._at=Date.now(); save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
+  $("tgSave").onclick=()=>{ if(!requireMe()) return; store.tg.token=$("tg_token").value.trim(); store.tg.chat=$("tg_chat").value.trim(); store.tg.time=$("tg_time").value; store.tg.auto=$("tg_auto").checked; store.tg.blockAlert=$("tg_block").checked; store.tg._at=Date.now(); save(); tgStateUI(); tgMsg("已儲存 ✓","ok"); };
   function tgMsg(t,cls){ const m=$("tgMsg"); m.textContent=t; m.className="sect-msg "+(cls||""); }
   async function sendTg(text){
     const token=($("tg_token").value||store.tg.token).trim(), chat=($("tg_chat").value||store.tg.chat).trim();
@@ -1178,6 +1198,7 @@
   }
   async function tryDetectChat(token){ try{ const r=await fetch("https://api.telegram.org/bot"+token+"/getUpdates"); const j=await r.json(); if(j.ok&&j.result.length){ const last=j.result[j.result.length-1]; const c=last.message&&last.message.chat&&last.message.chat.id; if(c) return String(c); } }catch(e){} return null; }
   $("tgTest").onclick=async ()=>{
+    if(!requireMe()) return;
     tgMsg("連線中…","");
     try{
       let token=$("tg_token").value.trim(); if(!token){ tgMsg("請先填寫 Bot Token","err"); return; }
@@ -1219,6 +1240,7 @@
     return msg;
   }
   $("digestBtn").onclick=async ()=>{
+    if(!requireMe()) return;
     if(!tgConfigured()){ $("tgBody").classList.add("open"); tgMsg("請先設定 Telegram","err"); $("tgHead").scrollIntoView({behavior:"smooth"}); return; }
     $("digestBtn").disabled=true; $("digestBtn").textContent="傳送中…";
     try{ await sendTg(buildDigest()); tgMsg("今日摘要已送出 ✓","ok"); }catch(e){ alert("傳送失敗:"+e.message); }
@@ -1235,6 +1257,7 @@
 
   // 備份到 Telegram(以文件形式上傳)
   $("exportBtn").onclick=async ()=>{
+    if(!requireMe()) return;
     const token=(store.tg.token||"").trim(), chat=(store.tg.chat||"").trim();
     if(!token||!chat){
       $("tgBody").classList.add("open");
@@ -1266,7 +1289,7 @@
     setTimeout(()=>URL.revokeObjectURL(url),1000);
     backupMsg("已下載 "+store.items.length+" 筆需求 ✓（檔案不含 Bot Token）","ok");
   };
-  $("importBtn").onclick=()=>$("importFile").click();
+  $("importBtn").onclick=()=>{ if(requireMe()) $("importFile").click(); };
   $("importFile").onchange=e=>{
     const file=e.target.files[0]; if(!file) return;
     const reader=new FileReader();
@@ -1311,7 +1334,7 @@
       if(d.bin!==store.cloud.bin){ store.pendingSync=false; store.cloudRev=null; } // 換資料庫:不混入舊資料
       store.cloud=d; saveLocal(); } }
     const mm=location.hash.match(/(?:^#|&)me=([^&]+)/);
-    if(mm){ try{ me=decodeURIComponent(mm[1]).trim(); localStorage.setItem(MEKEY,me); }catch(e){} $("meName").value=me; }
+    if(mm){ try{ me=decodeURIComponent(mm[1]).trim(); localStorage.setItem(MEKEY,me); }catch(e){} $("meName").value=me; meUI(); }
     loadTgForm(); render();
 
     if(cloudConfigured()){
