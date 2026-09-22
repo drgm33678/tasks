@@ -705,6 +705,40 @@ function checkTelegramBot() {
   console.log(JSON.stringify(info, null, 2));
 }
 
+/**
+ * 機器人沒反應時執行:列出 Telegram 那邊卡住的訊息來自哪個對話、會不會被當成查詢,並送一則測試訊息。
+ * 先在群組傳「/ask 234」,再執行這個函式,把執行記錄貼給 Claude。
+ */
+function diagnoseTelegramBot() {
+  const props = PropertiesService.getScriptProperties();
+  const tg = readStore().tg || {};
+  const token = String(tg.token || '').trim(), chat = String(tg.chat || '').trim(), botName = props.getProperty('TG_BOT_USERNAME');
+  console.log('網站設定的 Chat ID:' + (chat || '(未設定)') + ' · 機器人:@' + (botName || '(未設定,請先執行 setupTelegramBot)'));
+
+  // 暫時關掉轉接才能讀到卡住的訊息,讀完馬上恢復(不會刪掉訊息)
+  const url = tgApi(token, 'getWebhookInfo', {}).result.url;
+  if (url) tgApi(token, 'deleteWebhook', { drop_pending_updates: false });
+  try {
+    const ups = tgApi(token, 'getUpdates', { timeout: 0, allowed_updates: ['message'] }).result;
+    if (!ups.length) console.log('Telegram 沒有卡住的訊息。請先在群組傳「/ask 234」,馬上再執行一次這個函式');
+    ups.forEach(u => {
+      const m = u.message;
+      if (!m) return;
+      const q = botQuestion(m, botName);
+      console.log('訊息「' + String(m.text || '(非文字)').slice(0, 50) + '」來自對話 ' + m.chat.id + '(' + m.chat.type + (m.chat.title ? ':' + m.chat.title : '') + ')' +
+        '\n  和網站的 Chat ID 相同:' + (String(m.chat.id) === chat ? '是' : '否') +
+        ' · 會被當成查詢:' + (q === null ? '否' : '是「' + q + '」'));
+    });
+  } finally {
+    if (url) tgApi(token, 'setWebhook', { url: url, allowed_updates: ['message'] });
+  }
+
+  try {
+    tgApi(token, 'sendMessage', { chat_id: chat, text: '🔧 查詢機器人診斷:收到這則代表 Bot Token 與 Chat ID 正常' });
+    console.log('已送出測試訊息到 ' + chat + ',請看是哪個對話收到');
+  } catch (err) { console.log('送出測試訊息失敗:' + err.message); }
+}
+
 function tgApi(token, method, payload) {
   const r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
     method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(payload),
@@ -718,26 +752,30 @@ function handleTelegramUpdate(e) {
   const done = HtmlService.createHtmlOutput('ok');
   const props = PropertiesService.getScriptProperties();
   const secret = props.getProperty('TG_WEBHOOK_SECRET');
-  if (!secret || e.parameter.tg !== secret) return done;
+  if (!secret || e.parameter.tg !== secret) { console.log('略過:網址密語不符'); return done; }
 
   let update;
-  try { update = JSON.parse((e.postData && e.postData.contents) || '{}'); } catch (err) { return done; }
+  try { update = JSON.parse((e.postData && e.postData.contents) || '{}'); } catch (err) { console.log('略過:內容不是 JSON'); return done; }
   const msg = update.message;
   if (!msg || !msg.text) return done;
 
   // Telegram 沒收到回應時會重送同一則,記住處理過的,避免重複回答
   const cache = CacheService.getScriptCache();
-  if (cache.get('tgu_' + update.update_id)) return done;
+  if (cache.get('tgu_' + update.update_id)) { console.log('略過:已處理過的重送訊息 ' + update.update_id); return done; }
   cache.put('tgu_' + update.update_id, '1', 21600);
 
   let token = '';
   try {
     const rec = readStore(), tg = rec.tg || {};
     token = String(tg.token || '').trim();
-    if (!token || String(msg.chat.id) !== String(tg.chat || '').trim()) return done; // 只回應日報那個對話
+    if (!token || String(msg.chat.id) !== String(tg.chat || '').trim()) { // 只回應日報那個對話
+      console.log('略過:對話 ' + msg.chat.id + ' 不是網站設定的 Chat ID ' + (tg.chat || '(未設定)'));
+      return done;
+    }
 
     const q = botQuestion(msg, props.getProperty('TG_BOT_USERNAME'));
-    if (q === null) return done;
+    if (q === null) { console.log('略過:不是查詢指令「' + String(msg.text).slice(0, 30) + '」'); return done; }
+    console.log('查詢「' + q + '」');
     const today = Utilities.formatDate(new Date(), SYNC.TIMEZONE, 'yyyy-MM-dd');
     botReply(token, msg, q ? botSearch(rec.items || [], q, today) : BOT_HELP);
   } catch (err) {

@@ -114,7 +114,7 @@
 | `SHEET_KR` / `SHEET_DY` / `SHEET_LJ` | 各系統表格的 ID(網址中 `/d/` 與 `/edit` 之間那串) |
 | `SHEET_KR_NAME` …(選填) | 工作表分頁名稱,不填用第一個分頁 |
 | `ACCESS_TOKEN` | 存取金鑰(自動產生) |
-| `WEBAPP_URL`(選填) | `setupTelegramBot` 抓不到 Web App 網址時才需要填 |
+| `WEBAPP_URL` | 查詢機器人用:部署的 Web App 網址(`/exec` 結尾,和 GitHub Secret `GAS_URL` 相同)。程式自己抓到的是開發用 `/dev` 網址,Telegram 連不進去,所以要手動填 |
 | `TG_WEBHOOK_SECRET`、`TG_BOT_USERNAME` | 查詢機器人自動維護,**不要手動改** |
 | `FILE_ID`、`REV`、`SHEET_HASH_*` | 程式自動維護,**不要手動改** |
 
@@ -148,7 +148,8 @@
 | `setup` | 第一次設定用,已完成,不需要再執行 |
 | `setupTelegramBot` | 啟用查詢機器人(換 Bot Token 或部署網址後也要重跑) |
 | `removeTelegramBot` | 停用查詢機器人 |
-| `checkTelegramBot` | 查看機器人連線狀態,沒回應時先看這個的 `last_error_message` |
+| `checkTelegramBot` | 查看機器人連線狀態(`last_error_message` 出現「302 Found」是 Apps Script 的正常現象,可忽略) |
+| `diagnoseTelegramBot` | 機器人沒反應時:先在群組傳 `/ask 234` 再執行,會列出訊息來自哪個對話、是否被當成查詢,並送一則測試訊息 |
 
 ### 手動發日報 / 每週清單
 repo → Actions → 選「Daily Telegram Digest」或「Weekly Follow-up List」→ Run workflow。
@@ -195,7 +196,7 @@ repo → Actions → 選「Daily Telegram Digest」或「Weekly Follow-up List�
 | 網站顯示「備份失敗…秒後自動重試」 | 通常是網路或 Google 暫時問題,會自動重試;先不要關頁面 |
 | 沒收到日報 | repo → Actions 看最近一次執行是否紅色失敗,點進去看錯誤訊息 |
 | 表格改了網站沒變 | Apps Script → 執行項目,看 `syncNow` 的記錄;或手動執行 `syncNow` |
-| 查詢機器人沒回應 | 執行 `checkTelegramBot`;Apps Script → 執行項目 看 `doPost` 的錯誤;換過 Bot Token 要重跑 `setupTelegramBot` |
+| 查詢機器人沒回應 | 在群組傳 `/ask 234` 後執行 `diagnoseTelegramBot`;Apps Script → 執行項目 看 `doPost` 的錯誤;換過 Bot Token 要重跑 `setupTelegramBot` |
 | 網站「測試連線」抓不到 Chat ID | 啟用查詢機器人後 Telegram 不允許用這種方式抓,請手動填 Chat ID |
 | 表格阻塞沒通知 | `syncNow` 記錄是否有「已推送阻塞通知」或「略過」的原因 |
 | Actions 排程停了 | 公開 repo 60 天沒 commit 會被停用;daily 排程會自動補 commit,若仍停用到 Actions 頁面重新啟用 |
