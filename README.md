@@ -134,6 +134,7 @@
 ### 修改 Apps Script(`apps-script/Code.gs`)
 1. 把 `apps-script/Code.gs` 全部內容貼到 Apps Script 編輯器,取代原本的程式碼
 2. 部署 → 管理部署作業 → 編輯(鉛筆)→ 版本選「新版本」→ 部署(網址不變,其他地方都不用改)
+   ⚠ 先按💾儲存程式碼再部署;專案裡有多個部署時,要更新的是網站與日報在用的那一個(指令碼屬性 `WEBAPP_URL` 的網址);「版本」欄是灰色時,要先按右上角的鉛筆才能改
 3. 手動執行一次 `syncNow`,看執行記錄有沒有錯誤
 4. 如果新功能需要新權限,第一次執行時 Google 會要求授權,按允許
 
@@ -196,7 +197,7 @@ repo → Actions → 選「Daily Telegram Digest」或「Weekly Follow-up List�
 | 網站顯示「備份失敗…秒後自動重試」 | 通常是網路或 Google 暫時問題,會自動重試;先不要關頁面 |
 | 沒收到日報 | repo → Actions 看最近一次執行是否紅色失敗,點進去看錯誤訊息 |
 | 表格改了網站沒變 | Apps Script → 執行項目,看 `syncNow` 的記錄;或手動執行 `syncNow` |
-| 查詢機器人沒回應 | 在群組傳 `/ask 234` 後執行 `diagnoseTelegramBot`;Apps Script → 執行項目 看 `doPost` 的錯誤;換過 Bot Token 要重跑 `setupTelegramBot` |
+| 查詢機器人沒回應 | 執行 `setupTelegramBot` 或 `checkTelegramBot`,會檢查那個網址是不是跑著新版程式碼(常見原因:更新到別的部署了);再不行就在群組傳 `/ask 234` 後執行 `diagnoseTelegramBot`;Apps Script → 執行項目 看 `doPost` 的錯誤;換過 Bot Token 要重跑 `setupTelegramBot` |
 | 網站「測試連線」抓不到 Chat ID | 啟用查詢機器人後 Telegram 不允許用這種方式抓,請手動填 Chat ID |
 | 表格阻塞沒通知 | `syncNow` 記錄是否有「已推送阻塞通知」或「略過」的原因 |
 | Actions 排程停了 | 公開 repo 60 天沒 commit 會被停用;daily 排程會自動補 commit,若仍停用到 Actions 頁面重新啟用 |

@@ -663,7 +663,8 @@ const BOT = {
   DETAIL_MAX: 3,    // 符合幾筆以內顯示詳細進度,超過改成清單
   LIST_MAX: 15,     // 清單最多列幾筆
 };
-const BOT_EMOJI = { '待評估': '🟨', '未釐清': '❔', '釐清中': '🔍', '開發中': '🟦', '待測試': '🟪', '暫停開發': '⏸', '阻塞': '🟥', '已上線': '🟩' };
+const BOT_PING_OK = 'tasks-bot-ready'; // 網址檢查用的回應標記
+const BOT_EMOJI ={ '待評估': '🟨', '未釐清': '❔', '釐清中': '🔍', '開發中': '🟦', '待測試': '🟪', '暫停開發': '⏸', '阻塞': '🟥', '已上線': '🟩' };
 const BOT_HELP = '用 /ask 加上關鍵字查詢需求進度,例如:\n' +
   '/ask 234  (編號)\n/ask 國慶休市  (標題關鍵字)\n/ask KR 逾期\n/ask 重要\n/ask 阻塞\n/ask Amy 開發中  (PM + 狀態)\n\n' +
   '多個關鍵字用空格分開,要全部符合才會列出。也可以直接回覆我的訊息再查。';
@@ -682,6 +683,13 @@ function setupTelegramBot() {
     throw new Error('取不到 Web App 網址(' + base + ')。請在指令碼屬性加 WEBAPP_URL = 部署的網址(/exec 結尾)後再執行');
   }
 
+  // 先確認這個網址跑的是含機器人功能的新版程式碼(同一個專案可能有多個部署,各自停在不同版本)
+  const ping = pingWebApp(base, secret);
+  if (!ping.ok) throw new Error('這個網址不能用來接 Telegram:' + ping.why + '\n網址:' + base +
+    '\n請到「部署 → 管理部署作業」,把這個網址的部署「編輯 → 版本:新版本」重新部署;' +
+    '或改用另一個已經是新版的部署網址(改指令碼屬性 WEBAPP_URL)後再執行一次。');
+  console.log('網址檢查通過:這個部署跑的是新版程式碼');
+
   const me = tgApi(token, 'getMe', {}).result;
   props.setProperty('TG_BOT_USERNAME', me.username);
   tgApi(token, 'setWebhook', { url: base + '?tg=' + secret, allowed_updates: ['message'], drop_pending_updates: true });
@@ -699,10 +707,38 @@ function removeTelegramBot() {
 
 /** 查看 Telegram 端的連線狀態(有錯誤時看 last_error_message) */
 function checkTelegramBot() {
+  const props = PropertiesService.getScriptProperties();
   const token = String((readStore().tg || {}).token || '').trim();
   const info = tgApi(token, 'getWebhookInfo', {}).result;
+  const url = info.url;
   if (info.url) info.url = info.url.replace(/tg=[^&]+/, 'tg=***');
   console.log(JSON.stringify(info, null, 2));
+  console.log('註:last_error_message 出現「302 Found」、pending_update_count 有數字都是正常的' +
+    '(Apps Script 一律回 302,Telegram 會當成沒送達並保留訊息,但程式其實有執行)');
+  // Telegram 實際在呼叫的那個網址,現在跑的是不是新版程式碼
+  if (url) {
+    const ping = pingWebApp(url.split('?')[0], props.getProperty('TG_WEBHOOK_SECRET'));
+    console.log(ping.ok ? '網址檢查:這個部署跑的是新版程式碼 ✓'
+      : '網址檢查:這個部署' + ping.why + ' → 請到「管理部署作業」把它更新成新版本,或改 WEBAPP_URL 後重跑 setupTelegramBot');
+  }
+}
+
+/** 對 Web App 送一個測試請求,確認那個網址跑的是含機器人功能的新版程式碼 */
+function pingWebApp(base, secret) {
+  if (!secret) return { ok: false, why: '還沒產生網址密語,請先執行 setupTelegramBot' };
+  try {
+    const r = UrlFetchApp.fetch(base + '?tg=' + secret, {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ ping: true }), followRedirects: true,
+    });
+    const body = r.getContentText() || '';
+    if (body.indexOf(BOT_PING_OK) >= 0) return { ok: true, why: '' };
+    if (/unauthorized|請用 POST/.test(body)) return { ok: false, why: '跑的是還沒有機器人功能的舊版程式碼' };
+    if (/accounts\.google\.com|登入/i.test(body)) return { ok: false, why: '需要登入 Google(存取權要改成「所有人」)' };
+    return { ok: false, why: '回應看不懂(' + r.getResponseCode() + '):' + body.replace(/\s+/g, ' ').slice(0, 120) };
+  } catch (err) {
+    return { ok: false, why: '連不上:' + (err && err.message || err) };
+  }
 }
 
 /**
@@ -756,6 +792,8 @@ function handleTelegramUpdate(e) {
 
   let update;
   try { update = JSON.parse((e.postData && e.postData.contents) || '{}'); } catch (err) { console.log('略過:內容不是 JSON'); return done; }
+  // setupTelegramBot / checkTelegramBot 的網址檢查
+  if (update.ping) return HtmlService.createHtmlOutput(BOT_PING_OK);
   const msg = update.message;
   if (!msg || !msg.text) return done;
 
