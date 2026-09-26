@@ -120,6 +120,8 @@
   .badge.rank{color:#fff;background:var(--ink)}
   .badge.urgent{color:#fff;background:#C2410C}
   .badge.follow{color:var(--teal);background:rgba(46,139,132,.12);border:1px solid rgba(46,139,132,.35)}
+  .badge.follow.stale{color:#5a4712;background:rgba(168,132,46,.22);border-color:rgba(168,132,46,.45)}
+  .follow-list input[type=date]{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--paper-2);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
   .card.urgent{border-color:rgba(194,65,12,.45);box-shadow:0 0 0 1px rgba(194,65,12,.18),var(--shadow)}
   .side-item.urgent-side .side-label{color:#C2410C;font-weight:600}
   .side-item.urgent-side.active{background:rgba(194,65,12,.1);border-color:rgba(194,65,12,.35)}
@@ -483,6 +485,7 @@
   // 左側選的分類:系統,或「重要」
   const FOLLOWED="__followed"; // 左側「追蹤中」分類
   function isFollowed(t){ return follows(t).length>0 && !URGENT_END[t.status]; }
+  function isStaleFollow(t){ return isFollowed(t) && daysSinceFollow(t)>=STALE_FOLLOW_DAYS; }
   function sideMatch(t,val){ return !val || (val===URGENT?isUrgent(t):val===FOLLOWED?isFollowed(t):t.system===val); }
   function inSide(t){ return sideMatch(t,systemFilter); }
   function sideLabel(){ return systemFilter===URGENT?"重要":systemFilter===FOLLOWED?"追蹤中":systemFilter; }
@@ -497,8 +500,12 @@
   }
   // 追蹤紀錄:每點一次「追蹤」加一筆 {at,by},大家共用。合併時兩邊的紀錄都保留
   const FOLLOW_MAX=50;
+  const STALE_FOLLOW_DAYS=7; // 追蹤中但超過這麼多天沒再追蹤,就在卡片與警示列提醒
   function follows(t){ return Array.isArray(t.follows)?t.follows.filter(Boolean):[]; }
   function lastFollow(t){ const f=follows(t); return f.length?f[f.length-1]:null; }
+  function daysSinceFollow(t){ const f=lastFollow(t); return f?Math.floor((Date.now()-f.at)/DAY):null; }
+  // 記下追蹤紀錄最後改動的時間,多台裝置合併時用(見 mergeRemote)
+  function touchFollows(t){ touch(t); t._ft=t._ft||{}; t._ft.follows=t.updatedAt; }
   function mergeFollows(a,b){
     const m=new Map();
     [...(a||[]),...(b||[])].forEach(f=>{ if(f&&f.at) m.set(f.at+"|"+(f.by||""),f); });
@@ -506,13 +513,25 @@
   }
   function addFollow(t){
     t.follows=follows(t).concat([{at:Date.now(),by:me||"未署名"}]).slice(-FOLLOW_MAX);
-    touch(t); addHistory(t,[{field:"_follow"}]);
+    touchFollows(t); addHistory(t,[{field:"_follow"}]);
+  }
+  // 改追蹤日期(時間沿用原本的),用在事後補登或按錯日期時
+  function moveFollow(t,at,ymdStr){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(ymdStr||"")) return;
+    const f=follows(t), i=f.findIndex(x=>x.at===at); if(i<0) return;
+    const old=new Date(at), d=new Date(ymdStr+"T00:00:00");
+    d.setHours(old.getHours(),old.getMinutes(),old.getSeconds(),0);
+    const to=d.getTime();
+    if(!to||to===at||f.some(x=>x.at===to)) return;
+    f[i]={at:to,by:f[i].by};
+    t.follows=f.sort((a,b)=>a.at-b.at);
+    touchFollows(t); addHistory(t,[{field:"_followat",from:ymd(old),to:ymdStr}]);
   }
   function undoFollow(t,at){
     const f=follows(t); if(!f.length) return;
     t.follows=f.filter(x=>x.at!==at);
     if(t.follows.length===f.length) return;
-    touch(t); addHistory(t,[{field:"_unfollow"}]);
+    touchFollows(t); addHistory(t,[{field:"_unfollow"}]);
   }
   function mergeHist(a,b){
     const m=new Map();
@@ -639,8 +658,11 @@
       // _sheet:Google 表格同步程式記下的「上次從表格同步的值」,取較新的一份,避免表格舊值再次覆蓋網站
       if((lose._sheetAt||0)>(win._sheetAt||0)){ win._sheet=lose._sheet; win._sheetAt=lose._sheetAt; }
       win.history=mergeHist(c.history,t.history); // 兩邊的修改紀錄都保留
-      // 追蹤紀錄:兩邊都保留(取消的那一筆若另一邊還有,會再出現,以紀錄完整為優先)
-      const fm=mergeFollows(c.follows,t.follows); if(fm.length||win.follows) win.follows=fm;
+      // 追蹤紀錄:以最後改過的那一份為準,另一邊在那之後新增的補進來(所以取消、改日期不會被舊版本蓋回來)
+      if(win.follows||lose.follows){
+        const baseAt=ft.follows||0;
+        win.follows=mergeFollows(win.follows,(lose.follows||[]).filter(f=>f&&f.at>baseAt));
+      }
       byId.set(t.id,win);
     };
     (rec.items||[]).forEach(put); store.items.forEach(put);
@@ -819,22 +841,24 @@
 
     const overdue=sysItems.filter(isOverdue);
     const blocked=sysItems.filter(t=>t.status==="阻塞");
+    const stale=sysItems.filter(isStaleFollow);
     const ab=$("alertbar"); const parts=[];
     if(overdue.length) parts.push('<b>⚠ '+overdue.length+' 件逾期</b>');
     if(blocked.length) parts.push('<b>🚧 '+blocked.length+' 件阻塞</b>');
-    if(parts.length){ab.innerHTML=parts.join('　·　')+'　需優先排除障礙';ab.classList.add("show");} else ab.classList.remove("show");
+    if(stale.length) parts.push('<b>👀 '+stale.length+' 件超過 '+STALE_FOLLOW_DAYS+' 天沒追蹤</b>');
+    if(parts.length){ab.innerHTML=parts.join('　·　')+'　'+((overdue.length||blocked.length)?'需優先排除障礙':'該追一下進度');ab.classList.add("show");} else ab.classList.remove("show");
 
     // 左側系統分類
     const sb=$("sidebar"); sb.innerHTML='<div class="side-title">系統</div>';
     // 側欄件數只算進行中的需求(不含 已上線、暫停開發)
     const openItem=t=>!NO_OVERDUE[t.status];
     const sysCount=s=>store.items.filter(t=>t.system===s&&openItem(t)).length;
-    const alertCount=val=>store.items.filter(t=>sideMatch(t,val)&&(isOverdue(t)||t.status==="阻塞")).length;
+    const alertCount=val=>store.items.filter(t=>sideMatch(t,val)&&(isOverdue(t)||t.status==="阻塞"||isStaleFollow(t))).length;
     const mkSide=(label,val,n,cls)=>{
       const b=document.createElement("button");
       b.className="side-item"+(cls?" "+cls:"")+(systemFilter===val?" active":"");
       const ac=alertCount(val);
-      b.innerHTML='<span class="side-label">'+label+(ac?'<span class="alert-dot" title="'+ac+' 件逾期或阻塞"></span>':'')+'</span><span class="sn">'+n+'</span>';
+      b.innerHTML='<span class="side-label">'+label+(ac?'<span class="alert-dot" title="'+ac+' 件逾期、阻塞或久未追蹤"></span>':'')+'</span><span class="sn">'+n+'</span>';
       b.onclick=()=>{ systemFilter=(systemFilter===val?null:val); render(); };
       sb.appendChild(b);
     };
@@ -991,7 +1015,8 @@
         (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
         (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
         (isUrgent(t)?'<span class="badge urgent" title="重要,需即時處理">🔥 重要</span>':'')+
-        (isFollowed(t)?'<span class="badge follow" title="已追蹤 '+follows(t).length+' 次,最新 '+esc(fmtFull(lastFollow(t).at))+'">👀 追蹤中</span>':'')+
+        (isFollowed(t)?'<span class="badge follow'+(isStaleFollow(t)?' stale':'')+'" title="已追蹤 '+follows(t).length+' 次,最新 '+esc(fmtFull(lastFollow(t).at))+'">👀 '+
+          (isStaleFollow(t)?daysSinceFollow(t)+' 天沒追蹤':'追蹤中')+'</span>':'')+
         (priKey(t.priority)?'<span class="badge pri-'+priKey(t.priority)+'">'+priKey(t.priority)+'</span>':'')+
         (rankNum(t)!==Infinity?'<span class="badge rank" title="順位:數字越小越先做">順位 '+rankNum(t)+'</span>':'')+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
@@ -1036,6 +1061,9 @@
     el.querySelectorAll("[data-unfollow]").forEach(b=>{
       b.onclick=()=>{ if(!requireMe()) return; undoFollow(t,Number(b.getAttribute("data-unfollow"))); save(); render(); };
     });
+    el.querySelectorAll("[data-followdate]").forEach(inp=>{
+      inp.onchange=()=>{ if(!requireMe()){ render(); return; } moveFollow(t,Number(inp.getAttribute("data-followdate")),inp.value); save(); render(); };
+    });
     const ub=el.querySelector("[data-urgent]");
     if(ub) ub.onclick=()=>{
       if(!requireMe()) return;
@@ -1073,7 +1101,9 @@
       fmtFull(last.at)+'('+(days<=0?"今天":days+" 天前")+')</button></div>';
     if(open){
       html+='<ul class="follow-list">'+list.slice().reverse().map(f=>
-        '<li><span class="f-at">'+fmtFull(f.at)+'</span><span>'+esc(f.by||"未署名")+'</span>'+
+        '<li><input type="date" data-followdate="'+f.at+'" value="'+esc(ymd(new Date(f.at)))+'" max="'+esc(today())+'" title="可以改成實際追蹤的日期">'+
+        '<span class="f-at">'+pad(new Date(f.at).getHours())+':'+pad(new Date(f.at).getMinutes())+'</span>'+
+        '<span>'+esc(f.by||"未署名")+'</span>'+
         '<button class="icon-btn" data-unfollow="'+f.at+'">取消</button></li>').join("")+'</ul>';
     }
     return html;
@@ -1086,7 +1116,8 @@
     const label=FIELD_LABEL[h.field]||h.field;
     if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
     if(h.field==="_follow") return "追蹤了這筆需求";
-    if(h.field==="_unfollow") return "取消了最後一筆追蹤";
+    if(h.field==="_unfollow") return "取消了一筆追蹤";
+    if(h.field==="_followat") return "追蹤日期:"+(h.from||"")+" → "+(h.to||"");
     if(h.field==="urgent") return h.to?"設為重要(需即時處理)":"取消重要";
     const v=x=>{ const s=h.field==="priority"?priKey(x):x; return (s==null||s==="")?"(未填)":String(s); };
     return label+":"+v(h.from)+" → "+v(h.to);
