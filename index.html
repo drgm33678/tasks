@@ -501,11 +501,11 @@
   function addFollow(t){
     t.follows=follows(t).concat([{at:Date.now(),by:me||"未署名"}]).slice(-FOLLOW_MAX);
     touch(t); addHistory(t,[{field:"_follow"}]);
-    openFollows.add(t.id);
   }
-  function undoFollow(t){
+  function undoFollow(t,at){
     const f=follows(t); if(!f.length) return;
-    t.follows=f.slice(0,-1);
+    t.follows=f.filter(x=>x.at!==at);
+    if(t.follows.length===f.length) return;
     touch(t); addHistory(t,[{field:"_unfollow"}]);
   }
   function mergeHist(a,b){
@@ -514,6 +514,7 @@
     return [...m.values()].sort((x,y)=>x.at-y.at).slice(-HIST_MAX);
   }
   function fmtTime(ms){ const d=new Date(ms); return (d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes()); }
+  function fmtFull(ms){ const d=new Date(ms); return ymd(d)+" "+pad(d.getHours())+":"+pad(d.getMinutes()); }
 
   let toastTimer=null;
   function toast(msg,actLabel,act,ms){
@@ -1028,8 +1029,9 @@
     el.querySelector("[data-follow]").onclick=()=>{ if(!requireMe()) return; addFollow(t); save(); render(); };
     const fc=el.querySelector("[data-followlist]");
     if(fc) fc.onclick=()=>{ if(openFollows.has(t.id)) openFollows.delete(t.id); else openFollows.add(t.id); render(); };
-    const fu=el.querySelector("[data-unfollow]");
-    if(fu) fu.onclick=()=>{ if(!requireMe()) return; undoFollow(t); save(); render(); };
+    el.querySelectorAll("[data-unfollow]").forEach(b=>{
+      b.onclick=()=>{ if(!requireMe()) return; undoFollow(t,Number(b.getAttribute("data-unfollow"))); save(); render(); };
+    });
     const ub=el.querySelector("[data-urgent]");
     if(ub) ub.onclick=()=>{
       if(!requireMe()) return;
@@ -1063,12 +1065,12 @@
     const list=follows(t); if(!list.length) return '';
     const last=list[list.length-1], open=openFollows.has(t.id);
     const days=Math.floor((Date.now()-last.at)/DAY);
-    let html='<div class="follow-bar"><button class="follow-chip" data-followlist>👀 已追蹤 '+list.length+' 次 · 最後 '+
-      fmtTime(last.at)+'('+(days<=0?"今天":days+" 天前")+')</button></div>';
+    let html='<div class="follow-bar"><button class="follow-chip" data-followlist>👀 已追蹤 '+list.length+' 次 · 最新 '+
+      fmtFull(last.at)+'('+(days<=0?"今天":days+" 天前")+')</button></div>';
     if(open){
       html+='<ul class="follow-list">'+list.slice().reverse().map(f=>
-        '<li><span class="f-at">'+fmtTime(f.at)+'</span><span>'+esc(f.by||"未署名")+'</span></li>').join("")+
-        '<li><button class="icon-btn" data-unfollow>取消最後一筆</button></li></ul>';
+        '<li><span class="f-at">'+fmtFull(f.at)+'</span><span>'+esc(f.by||"未署名")+'</span>'+
+        '<button class="icon-btn" data-unfollow="'+f.at+'">取消</button></li>').join("")+'</ul>';
     }
     return html;
   }
