@@ -158,8 +158,11 @@
   .follow-chip{border:1px solid var(--line);background:var(--paper-3);border-radius:20px;padding:4px 11px;font-family:inherit;font-size:12.5px;color:var(--ink-soft);cursor:pointer}
   .follow-chip:hover{border-color:var(--ink-soft);color:var(--ink)}
   .follow-list{margin-top:8px;padding:10px 12px;background:var(--paper-3);border:1px solid var(--line-soft);border-radius:9px;font-size:12.5px;color:var(--ink-soft);max-height:200px;overflow:auto}
-  .follow-list li{display:flex;gap:10px;padding:3px 0;list-style:none}
-  .follow-list .f-at{font-variant-numeric:tabular-nums;color:var(--ink)}
+  .follow-list li{display:flex;align-items:center;gap:10px;padding:4px 0;list-style:none}
+  .follow-list li+li{border-top:1px solid var(--line-soft)}
+  .follow-list .f-at{font-variant-numeric:tabular-nums;color:var(--ink-soft);min-width:40px}
+  .follow-list .f-by{flex:1;min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .follow-list .icon-btn{flex:0 0 auto;padding:3px 9px}
   .card-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
   .icon-btn{border:1px solid var(--line);background:none;color:var(--ink-soft);border-radius:7px;padding:5px 10px;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
   .icon-btn:hover{border-color:var(--ink-soft);color:var(--ink)}
@@ -1103,7 +1106,7 @@
       html+='<ul class="follow-list">'+list.slice().reverse().map(f=>
         '<li><input type="date" data-followdate="'+f.at+'" value="'+esc(ymd(new Date(f.at)))+'" max="'+esc(today())+'" title="可以改成實際追蹤的日期">'+
         '<span class="f-at">'+pad(new Date(f.at).getHours())+':'+pad(new Date(f.at).getMinutes())+'</span>'+
-        '<span>'+esc(f.by||"未署名")+'</span>'+
+        '<span class="f-by">'+esc(f.by||"未署名")+'</span>'+
         '<button class="icon-btn" data-unfollow="'+f.at+'">取消</button></li>').join("")+'</ul>';
     }
     return html;
