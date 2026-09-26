@@ -149,6 +149,12 @@
   .technote{white-space:pre-wrap;word-break:break-word}
   .technote a,.card-desc a{text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
   .field .hint{font-size:11.5px;color:var(--ink-faint);margin-top:1px}
+  .follow-bar{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--ink-soft)}
+  .follow-chip{border:1px solid var(--line);background:var(--paper-3);border-radius:20px;padding:4px 11px;font-family:inherit;font-size:12.5px;color:var(--ink-soft);cursor:pointer}
+  .follow-chip:hover{border-color:var(--ink-soft);color:var(--ink)}
+  .follow-list{margin-top:8px;padding:10px 12px;background:var(--paper-3);border:1px solid var(--line-soft);border-radius:9px;font-size:12.5px;color:var(--ink-soft);max-height:200px;overflow:auto}
+  .follow-list li{display:flex;gap:10px;padding:3px 0;list-style:none}
+  .follow-list .f-at{font-variant-numeric:tabular-nums;color:var(--ink)}
   .card-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
   .icon-btn{border:1px solid var(--line);background:none;color:var(--ink-soft);border-radius:7px;padding:5px 10px;font-size:12px;font-family:inherit;cursor:pointer;transition:.15s}
   .icon-btn:hover{border-color:var(--ink-soft);color:var(--ink)}
@@ -454,7 +460,7 @@
   let query="", fx={priority:"",category:"",pm:"",unit:""};
   // 收在清單最下方、預設不展開的狀態(依序顯示)
   const COLLAPSED={"暫停開發":1,"已上線":1}, showCollapsed={};
-  const openHistory=new Set();
+  const openHistory=new Set(), openFollows=new Set();
 
   // 操作人:記在修改紀錄與通知裡;只存本機(還原機可用網址 #me=名字 帶入)
   const MEKEY="reqtracker.me";
@@ -482,6 +488,25 @@
     // _ft:每個欄位最後修改時間,多人同時改同一筆的不同欄位時,合併用
     t._ft=t._ft||{}; changes.forEach(c=>{ if(FIELD_LABEL[c.field]) t._ft[c.field]=at; });
     t.history=(t.history||[]).concat(changes.map(c=>Object.assign({at,by},c))).slice(-HIST_MAX);
+  }
+  // 追蹤紀錄:每點一次「追蹤」加一筆 {at,by},大家共用。合併時兩邊的紀錄都保留
+  const FOLLOW_MAX=50;
+  function follows(t){ return Array.isArray(t.follows)?t.follows.filter(Boolean):[]; }
+  function lastFollow(t){ const f=follows(t); return f.length?f[f.length-1]:null; }
+  function mergeFollows(a,b){
+    const m=new Map();
+    [...(a||[]),...(b||[])].forEach(f=>{ if(f&&f.at) m.set(f.at+"|"+(f.by||""),f); });
+    return [...m.values()].sort((x,y)=>x.at-y.at).slice(-FOLLOW_MAX);
+  }
+  function addFollow(t){
+    t.follows=follows(t).concat([{at:Date.now(),by:me||"未署名"}]).slice(-FOLLOW_MAX);
+    touch(t); addHistory(t,[{field:"_follow"}]);
+    openFollows.add(t.id);
+  }
+  function undoFollow(t){
+    const f=follows(t); if(!f.length) return;
+    t.follows=f.slice(0,-1);
+    touch(t); addHistory(t,[{field:"_unfollow"}]);
   }
   function mergeHist(a,b){
     const m=new Map();
@@ -607,6 +632,8 @@
       // _sheet:Google 表格同步程式記下的「上次從表格同步的值」,取較新的一份,避免表格舊值再次覆蓋網站
       if((lose._sheetAt||0)>(win._sheetAt||0)){ win._sheet=lose._sheet; win._sheetAt=lose._sheetAt; }
       win.history=mergeHist(c.history,t.history); // 兩邊的修改紀錄都保留
+      // 追蹤紀錄:兩邊都保留(取消的那一筆若另一邊還有,會再出現,以紀錄完整為優先)
+      const fm=mergeFollows(c.follows,t.follows); if(fm.length||win.follows) win.follows=fm;
       byId.set(t.id,win);
     };
     (rec.items||[]).forEach(put); store.items.forEach(put);
@@ -980,7 +1007,9 @@
       '</div>'+
       (t.note?'<div class="technote"><b>技術回復</b>'+linkify(t.note)+'</div>':'')+
       (t.gmNote?'<div class="technote gm"><b>GM 備註</b>'+linkify(t.gmNote)+'</div>':'')+
+      followHtml(t)+
       '<div class="card-actions">'+
+        '<button class="icon-btn" data-follow>👀 追蹤</button>'+
         (!URGENT_END[t.status]?'<button class="icon-btn'+(t.urgent?' urgent-on':'')+'" data-urgent>'+(t.urgent?'取消重要':'🔥 設為重要')+'</button>':'')+
         '<button class="icon-btn" data-hist>紀錄'+(t.history&&t.history.length?' ('+t.history.length+')':'')+'</button><button class="icon-btn" data-edit>編輯</button><button class="icon-btn danger" data-del>刪除</button></div>'+
       (openHistory.has(t.id)?historyHtml(t):'');
@@ -996,6 +1025,11 @@
       if(t.status==="阻塞") notifyBlocked(t);
     };
     sel.onpointerdown=e=>e.stopPropagation(); // 手動排序時,點狀態不觸發拖曳
+    el.querySelector("[data-follow]").onclick=()=>{ if(!requireMe()) return; addFollow(t); save(); render(); };
+    const fc=el.querySelector("[data-followlist]");
+    if(fc) fc.onclick=()=>{ if(openFollows.has(t.id)) openFollows.delete(t.id); else openFollows.add(t.id); render(); };
+    const fu=el.querySelector("[data-unfollow]");
+    if(fu) fu.onclick=()=>{ if(!requireMe()) return; undoFollow(t); save(); render(); };
     const ub=el.querySelector("[data-urgent]");
     if(ub) ub.onclick=()=>{
       if(!requireMe()) return;
@@ -1024,6 +1058,20 @@
     return el;
   }
   function metaCell(k,v){return '<div class="m"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+  // 追蹤狀態:沒追蹤過不顯示;有的話顯示次數與最後一次,點開看每一次的日期與是誰追的
+  function followHtml(t){
+    const list=follows(t); if(!list.length) return '';
+    const last=list[list.length-1], open=openFollows.has(t.id);
+    const days=Math.floor((Date.now()-last.at)/DAY);
+    let html='<div class="follow-bar"><button class="follow-chip" data-followlist>👀 已追蹤 '+list.length+' 次 · 最後 '+
+      fmtTime(last.at)+'('+(days<=0?"今天":days+" 天前")+')</button></div>';
+    if(open){
+      html+='<ul class="follow-list">'+list.slice().reverse().map(f=>
+        '<li><span class="f-at">'+fmtTime(f.at)+'</span><span>'+esc(f.by||"未署名")+'</span></li>').join("")+
+        '<li><button class="icon-btn" data-unfollow>取消最後一筆</button></li></ul>';
+    }
+    return html;
+  }
   function historyText(h){
     if(h.field==="_create") return "建立需求";
     if(h.field==="_restore") return "從「最近刪除」復原";
@@ -1031,6 +1079,8 @@
     if(h.field==="_sheet") return "從 Google 表格同步建立";
     const label=FIELD_LABEL[h.field]||h.field;
     if(LONG_FIELDS[h.field]) return "修改了「"+label+"」";
+    if(h.field==="_follow") return "追蹤了這筆需求";
+    if(h.field==="_unfollow") return "取消了最後一筆追蹤";
     if(h.field==="urgent") return h.to?"設為重要(需即時處理)":"取消重要";
     const v=x=>{ const s=h.field==="priority"?priKey(x):x; return (s==null||s==="")?"(未填)":String(s); };
     return label+":"+v(h.from)+" → "+v(h.to);
