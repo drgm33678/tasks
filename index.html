@@ -119,9 +119,12 @@
   .pri-P2{color:var(--ink-soft);background:var(--paper-3);border:1px solid var(--line)}
   .badge.rank{color:#fff;background:var(--ink)}
   .badge.urgent{color:#fff;background:#C2410C}
+  .badge.follow{color:var(--teal);background:rgba(46,139,132,.12);border:1px solid rgba(46,139,132,.35)}
   .card.urgent{border-color:rgba(194,65,12,.45);box-shadow:0 0 0 1px rgba(194,65,12,.18),var(--shadow)}
   .side-item.urgent-side .side-label{color:#C2410C;font-weight:600}
   .side-item.urgent-side.active{background:rgba(194,65,12,.1);border-color:rgba(194,65,12,.35)}
+  .side-item.follow-side .side-label{color:var(--teal);font-weight:600}
+  .side-item.follow-side.active{background:rgba(46,139,132,.1);border-color:rgba(46,139,132,.35)}
   .side-sep{height:1px;background:var(--line);margin:6px 8px 8px}
   .icon-btn.urgent-on{border-color:rgba(194,65,12,.45);color:#C2410C}
   .check-field{display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer}
@@ -478,8 +481,11 @@
   const URGENT_END={"暫停開發":1,"已上線":1};
   function isUrgent(t){ return !!t.urgent && !URGENT_END[t.status]; }
   // 左側選的分類:系統,或「重要」
-  function inSide(t){ return !systemFilter || (systemFilter===URGENT?isUrgent(t):t.system===systemFilter); }
-  function sideLabel(){ return systemFilter===URGENT?"重要":systemFilter; }
+  const FOLLOWED="__followed"; // 左側「追蹤中」分類
+  function isFollowed(t){ return follows(t).length>0 && !URGENT_END[t.status]; }
+  function sideMatch(t,val){ return !val || (val===URGENT?isUrgent(t):val===FOLLOWED?isFollowed(t):t.system===val); }
+  function inSide(t){ return sideMatch(t,systemFilter); }
+  function sideLabel(){ return systemFilter===URGENT?"重要":systemFilter===FOLLOWED?"追蹤中":systemFilter; }
   const FIELD_LABEL={urgent:"重要",ticket:"Ticket",priority:"優先級",rank:"順位",system:"系統",platform:"平台",title:"需求標題",desc:"問題描述",
     category:"類別",status:"狀態",unit:"需求單位",pm:"負責 PM",submit:"提交日期",due:"預計上線",doc:"文件",note:"技術回復",gmNote:"GM 備註"};
   const LONG_FIELDS={desc:1,note:1,gmNote:1};
@@ -823,11 +829,7 @@
     // 側欄件數只算進行中的需求(不含 已上線、暫停開發)
     const openItem=t=>!NO_OVERDUE[t.status];
     const sysCount=s=>store.items.filter(t=>t.system===s&&openItem(t)).length;
-    const alertCount=val=>store.items.filter(t=>{
-      if(val===URGENT?!isUrgent(t):(val && t.system!==val)) return false;
-      const overdue=isOverdue(t);
-      return overdue || t.status==="阻塞";
-    }).length;
+    const alertCount=val=>store.items.filter(t=>sideMatch(t,val)&&(isOverdue(t)||t.status==="阻塞")).length;
     const mkSide=(label,val,n,cls)=>{
       const b=document.createElement("button");
       b.className="side-item"+(cls?" "+cls:"")+(systemFilter===val?" active":"");
@@ -840,6 +842,7 @@
     SYSTEMS.forEach(s=>mkSide(s, s, sysCount(s)));
     sb.appendChild(Object.assign(document.createElement("div"),{className:"side-sep"}));
     mkSide("🔥 重要", URGENT, store.items.filter(isUrgent).length, "urgent-side");
+    mkSide("👀 追蹤中", FOLLOWED, store.items.filter(isFollowed).length, "follow-side");
 
     renderFilterOptions(); renderTrash();
 
@@ -988,6 +991,7 @@
         (manualDrag?'<span class="grip" title="拖曳排序">⠿</span>':'')+
         (t.ticket?'<span class="ticket-id">'+esc(t.ticket)+'</span>':'')+
         (isUrgent(t)?'<span class="badge urgent" title="重要,需即時處理">🔥 重要</span>':'')+
+        (isFollowed(t)?'<span class="badge follow" title="已追蹤 '+follows(t).length+' 次,最新 '+esc(fmtFull(lastFollow(t).at))+'">👀 追蹤中</span>':'')+
         (priKey(t.priority)?'<span class="badge pri-'+priKey(t.priority)+'">'+priKey(t.priority)+'</span>':'')+
         (rankNum(t)!==Infinity?'<span class="badge rank" title="順位:數字越小越先做">順位 '+rankNum(t)+'</span>':'')+
         (t.system?'<span class="sys">'+esc(t.system)+'</span>':'')+
